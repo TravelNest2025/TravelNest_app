@@ -134,20 +134,6 @@ source venv/bin/activate  # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-### 设置环境变量
-
-创建`.env`文件（不要提交到Git）：
-
-```bash
-export GOOGLE_MAPS_API_KEY="your_key"
-export QWEN_API_KEY="your_key"
-export DB_HOST="127.0.0.1"
-export DB_PORT="5432"
-export DB_USER="postgres"
-export DB_PASSWORD="your_password"
-export DB_NAME="poi_database"
-```
-
 ### 本地运行
 
 ```bash
@@ -327,15 +313,5 @@ sleep 5  # 改为 sleep 10
 ## 🤝 贡献指南
 
 欢迎提交Issue和Pull Request！
-
-## 📄 许可证
-
-MIT License
-
-## 👥 作者
-
-您的名字
-
----
 
 **⭐ 如果这个项目对您有帮助，请给个Star！**
