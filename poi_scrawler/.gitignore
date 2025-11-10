@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+*.egg-info/
+dist/
+build/
+
+# 环境变量
+.env
+*.env
+
+# 密钥文件
+*.json
+!schema.sql
+
+# 输出文件
+paris_comprehensive_database.json
+*_database.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# 系统文件
+.DS_Store
+Thumbs.db
+
+# 日志
+*.log
+
+# Cloud SQL Proxy
+cloud-sql-proxy
