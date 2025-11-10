@@ -11,6 +11,9 @@ on:
 jobs:
   collect-and-sync:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./your-default-directory
     
     permissions:
       contents: 'read'
@@ -30,7 +33,6 @@ jobs:
           python-version: '3.11'
       
       - name: Install Python dependencies
-        working-directory: ./poi_scrawler
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
