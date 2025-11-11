@@ -39,25 +39,68 @@ jobs:
       
       # ========================================
       # 2. 数据采集（Google Maps + Qwen AI）
+      #    使用智能采集策略：150 + 去重 + 50补充
       # ========================================
-
       - name: Run POI Data Collection
         env:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
-          # 添加数据库配置
-          DB_HOST: "127.0.0.1"
-          DB_PORT: "5432"
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
         run: |
           cd src
-          python maps_calling.py
+          python maps_calling_smart.py  # 直接运行smart版本
         continue-on-error: false
       
       # ========================================
-      # 3. Google Cloud认证
+      # 3. 验证采集结果
+      # ========================================
+      
+      - name: Validate Collection Results
+        run: |
+          cd src
+          echo "📊 Checking collection results..."
+          ls -lh *_comprehensive_database.json || echo "⚠️ No JSON file found"
+          
+          # 使用Python验证JSON文件
+          python3 << 'EOF'
+          import json
+          import os
+          import glob
+          
+          json_files = glob.glob("src/*_comprehensive_database.json")
+          
+          if not json_files:
+              print("❌ No JSON files found!")
+              exit(1)
+          
+          for json_file in json_files:
+              print(f"\n📄 Validating {json_file}...")
+              try:
+                  with open(json_file, 'r', encoding='utf-8') as f:
+                      data = json.load(f)
+                  print(f"✅ Valid JSON with {len(data)} POIs")
+                  
+                  # 统计POI类型
+                  types = {}
+                  for poi in data:
+                      poi_type = poi.get('poi_type', 'unknown')
+                      types[poi_type] = types.get(poi_type, 0) + 1
+                  
+                  print(f"📊 POI Distribution:")
+                  for poi_type, count in types.items():
+                      print(f"   - {poi_type}: {count}")
+              
+              except json.JSONDecodeError as e:
+                  print(f"❌ Invalid JSON: {e}")
+                  exit(1)
+              except Exception as e:
+                  print(f"❌ Error: {e}")
+                  exit(1)
+          
+          print("\n✅ All JSON files validated successfully")
+          EOF
+      
+      # ========================================
+      # 4. Google Cloud认证
       # ========================================
       
       - name: Authenticate to Google Cloud
@@ -67,7 +110,7 @@ jobs:
           credentials_json: '${{ secrets.GCP_SA_KEY }}'
       
       # ========================================
-      # 4. 启动Cloud SQL Auth Proxy
+      # 5. 启动Cloud SQL Auth Proxy
       # ========================================
       
       - name: Download Cloud SQL Auth Proxy
@@ -82,23 +125,23 @@ jobs:
           echo "PROXY_PID=$PROXY_PID" >> $GITHUB_ENV
           
           # 等待代理就绪（带健康检查）
-          echo "Waiting for Cloud SQL Proxy to be ready..."
+          echo "⏳ Waiting for Cloud SQL Proxy to be ready..."
           for i in {1..30}; do
             if nc -z 127.0.0.1 5432 2>/dev/null; then
-              echo "✅ Cloud SQL Proxy is ready"
+              echo "✅ Cloud SQL Proxy is ready (attempt $i)"
               break
             fi
             if [ $i -eq 30 ]; then
-              echo "❌ Cloud SQL Proxy failed to start"
+              echo "❌ Cloud SQL Proxy failed to start after 30 attempts"
               kill $PROXY_PID 2>/dev/null || true
               exit 1
             fi
-            echo "Attempt $i/30: waiting..."
+            echo "   Attempt $i/30: waiting..."
             sleep 2
           done
       
       # ========================================
-      # 5. 数据同步到数据库
+      # 6. 数据同步到数据库
       # ========================================
       
       - name: Sync Data to Cloud SQL
@@ -110,10 +153,18 @@ jobs:
           DB_NAME: ${{ secrets.DB_NAME }}
         run: |
           cd src
+          
+          # 调试：列出所有JSON文件
+          echo "📁 JSON files in current directory:"
+          ls -la *.json
+          
+          # 运行同步脚本
+          echo ""
+          echo "🔄 Starting database synchronization..."
           python sync_to_db.py
       
       # ========================================
-      # 6. 清理
+      # 7. 清理
       # ========================================
       
       - name: Cleanup
@@ -122,21 +173,54 @@ jobs:
           # 停止Cloud SQL Proxy
           if [ ! -z "$PROXY_PID" ]; then
             kill $PROXY_PID 2>/dev/null || true
-            echo "Cloud SQL Proxy stopped"
+            echo "🔌 Cloud SQL Proxy stopped"
           fi
           
           # 删除敏感文件
           rm -f src/*_comprehensive_database.json
           rm -f cloud-sql-proxy
+          
+          echo "🧹 Cleanup completed"
       
       # ========================================
-      # 7. 上传结果（可选，用于调试）
+      # 8. 上传结果（可选，用于调试）
       # ========================================
       
       - name: Upload collection summary
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: collection-summary
+          name: collection-summary-${{ github.run_number }}
           path: src/*_comprehensive_database.json
           retention-days: 7
+          if-no-files-found: warn
+      
+      # ========================================
+      # 9. 通知结果（可选）
+      # ========================================
+      
+      - name: Report Success
+        if: success()
+        run: |
+          echo ""
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║                  ✅ PIPELINE SUCCESS                      ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "📊 Workflow completed successfully!"
+          echo "   - Data collected and AI-enhanced"
+          echo "   - Synced to Cloud SQL database"
+          echo "   - Run number: ${{ github.run_number }}"
+          echo ""
+      
+      - name: Report Failure
+        if: failure()
+        run: |
+          echo ""
+          echo "╔════════════════════════════════════════════════════════════╗"
+          echo "║                  ❌ PIPELINE FAILED                       ║"
+          echo "╚════════════════════════════════════════════════════════════╝"
+          echo ""
+          echo "⚠️  Workflow failed. Please check the logs above."
+          echo "   - Run number: ${{ github.run_number }}"
+          echo ""
