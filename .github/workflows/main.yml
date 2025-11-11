@@ -40,16 +40,20 @@ jobs:
       # ========================================
       # 2. 数据采集（Google Maps + Qwen AI）
       # ========================================
-      
+
       - name: Run POI Data Collection
         env:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+          # 添加数据库配置
+          DB_HOST: "127.0.0.1"
+          DB_PORT: "5432"
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
         run: |
           cd src
           python maps_calling.py
-        
-        # 如果采集失败，不继续后续步骤
         continue-on-error: false
       
       # ========================================
