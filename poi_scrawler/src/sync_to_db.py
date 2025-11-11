@@ -7,7 +7,7 @@ import json
 import psycopg2
 from psycopg2.extras import execute_values
 from typing import List, Dict, Tuple
-from config import DB_CONFIG, CITY_ID
+from config import DB_CONFIG, CITY_ID, validate_config
 
 # ==============================================================================
 # 数据库连接
@@ -279,12 +279,19 @@ def sync_to_database(json_filepath: str):
     
     # 1. 加载JSON文件
     try:
+        # 检查文件是否存在
+        if not os.path.exists(json_filepath):
+            print(f"❌ File not found: {json_filepath}")
+            print(f"   Current directory: {os.getcwd()}")
+            print(f"   Files in current directory:")
+            for f in os.listdir('.'):
+                if f.endswith('.json'):
+                    print(f"      - {f}")
+            return
+        
         with open(json_filepath, 'r', encoding='utf-8') as f:
             all_pois = json.load(f)
         print(f"✅ Loaded {len(all_pois)} POIs from {json_filepath}")
-    except FileNotFoundError:
-        print(f"❌ File not found: {json_filepath}")
-        return
     except json.JSONDecodeError as e:
         print(f"❌ JSON parsing error: {e}")
         return
@@ -356,6 +363,11 @@ def sync_to_database(json_filepath: str):
 def main():
     """主执行流程"""
     import sys
+    
+    # 验证数据库配置（sync阶段必须验证数据库）
+    if not validate_config(require_db=True):
+        print("\n❌ Configuration validation failed. Exiting...")
+        return
     
     # 默认文件名
     json_filepath = f"{CITY_ID}_comprehensive_database.json"

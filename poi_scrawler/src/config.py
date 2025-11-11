@@ -3,6 +3,7 @@
 集中管理所有配置信息，包括API密钥、搜索关键词、城市信息等
 """
 import os
+import json
 from typing import Dict, List
 
 # ==============================================================================
@@ -12,7 +13,7 @@ from typing import Dict, List
 # 阿里云Qwen API配置 (通过OpenAI SDK调用)
 QWEN_API_KEY = os.environ.get("QWEN_API_KEY")  # 阿里云API Key
 QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"  # 阿里云兼容端点
-QWEN_MODEL = "qwen-max"  # 使用qwen-max模型
+QWEN_MODEL = "qwen3-max-preview"  # 使用qwen-max模型
 
 # Google Maps API配置
 GOOGLE_MAPS_API_KEY = os.environ.get("GOOGLE_MAPS_API_KEY")
@@ -270,27 +271,48 @@ Now analyze the POI list and return the enriched data in the exact format specif
 # 验证函数
 # ==============================================================================
 
-def validate_config():
-    """验证配置是否完整"""
+def validate_config(require_db: bool = False):
+    """
+    验证配置是否完整
+    
+    Args:
+        require_db: 是否需要验证数据库配置（默认False）
+            - False: 只验证API密钥（用于数据采集阶段）
+            - True: 同时验证数据库配置（用于数据同步阶段）
+    
+    Returns:
+        bool: 配置是否有效
+    """
     errors = []
     
+    # API密钥检查（总是需要）
     if not QWEN_API_KEY:
         errors.append("❌ QWEN_API_KEY environment variable not set")
     
     if not GOOGLE_MAPS_API_KEY:
         errors.append("❌ GOOGLE_MAPS_API_KEY environment variable not set")
     
-    if not all(DB_CONFIG.values()):
-        errors.append("❌ Database configuration incomplete")
+    # 数据库配置检查（可选）
+    if require_db:
+        missing_db_configs = [k for k, v in DB_CONFIG.items() if not v]
+        if missing_db_configs:
+            errors.append(f"❌ Database configuration incomplete. Missing: {', '.join(missing_db_configs)}")
     
+    # 打印错误信息
     if errors:
+        print("\n" + "="*60)
+        print("⚠️  Configuration Validation Failed")
+        print("="*60)
         for error in errors:
             print(error)
+        print("="*60 + "\n")
         return False
     
+    # 配置验证成功
     print("✅ Configuration validated successfully")
+    
+    # 如果不需要数据库配置，但数据库配置缺失，给出提示
+    if not require_db and not all(DB_CONFIG.values()):
+        print("ℹ️  Database configuration not required for this step")
+    
     return True
-
-
-# 导入json用于prompt生成
-import json

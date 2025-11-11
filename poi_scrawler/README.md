@@ -1,317 +1,380 @@
-# 🌍 POI Data Collection Pipeline
+# POI Data Collection Pipeline - 完整解决方案
 
-一个完整的POI（Point of Interest）数据采集系统，从Google Maps获取数据，使用阿里云Qwen AI进行智能标注，并自动同步到Google Cloud SQL数据库。
+## 📋 问题解决方案总结
 
-## 📋 系统架构
+### 1. 为什么不需要在采集阶段连数据库？
+
+**原始设计逻辑（正确的分离架构）：**
 
 ```
-GitHub Actions (每周自动运行)
-    ↓
-Google Maps API (获取POI基础数据)
-    ↓
-Alibaba Qwen AI (智能标注和增强)
-    ↓
-JSON文件 (临时存储)
-    ↓
-Cloud SQL Proxy (安全连接)
-    ↓
-Google Cloud SQL (PostgreSQL数据库)
+maps_calling.py → 数据采集 + AI增强 → 输出JSON文件
+                                          ↓
+sync_to_db.py → 读取JSON文件 → 连接数据库 → 同步数据
 ```
 
-## 🚀 快速开始
+**优点：**
+- ✅ **关注点分离**：采集和存储是独立的步骤
+- ✅ **容错性强**：数据库问题不影响数据采集
+- ✅ **成本可控**：避免因数据库问题浪费付费API额度
+- ✅ **灵活性高**：可以先检查数据质量再决定是否同步
 
-### 前置要求
+### 2. 修复"Database configuration incomplete"错误
 
-1. **Google Cloud账号**
-   - 启用Cloud SQL API
-   - 创建PostgreSQL实例
-   - 创建服务账号并授予`Cloud SQL Client`角色
+**根本原因：**
+- `config.py` 中的 `validate_config()` 函数在采集阶段就检查数据库配置
+- 但采集阶段不需要数据库配置
 
-2. **API密钥**
-   - Google Maps API Key
-   - 阿里云Qwen API Key (DashScope)
+**解决方案：**
 
-3. **GitHub仓库**
-   - 用于托管代码和运行GitHub Actions
+#### 修改 `config.py`
+```python
+def validate_config(require_db: bool = False):
+    """
+    验证配置是否完整
+    
+    Args:
+        require_db: 是否需要验证数据库配置
+            - False: 只验证API密钥（数据采集阶段）
+            - True: 同时验证数据库配置（数据同步阶段）
+    """
+    errors = []
+    
+    # API密钥检查（总是需要）
+    if not QWEN_API_KEY:
+        errors.append("❌ QWEN_API_KEY not set")
+    if not GOOGLE_MAPS_API_KEY:
+        errors.append("❌ GOOGLE_MAPS_API_KEY not set")
+    
+    # 数据库配置检查（可选）
+    if require_db:
+        missing_db = [k for k, v in DB_CONFIG.items() if not v]
+        if missing_db:
+            errors.append(f"❌ DB config incomplete: {missing_db}")
+    
+    if errors:
+        for error in errors:
+            print(error)
+        return False
+    
+    print("✅ Configuration validated")
+    if not require_db and not all(DB_CONFIG.values()):
+        print("ℹ️  Database not required for this step")
+    
+    return True
+```
 
-### 步骤1：设置数据库
+#### 修改 `maps_calling.py`
+```python
+def main():
+    # 数据采集阶段不需要数据库配置
+    if not validate_config(require_db=False):
+        return
+    # ... 其余代码
+```
 
-连接到您的Cloud SQL实例，执行Schema脚本创建所有必要的表：
+#### 修改 `sync_to_db.py`
+```python
+def main():
+    # 数据同步阶段必须验证数据库配置
+    if not validate_config(require_db=True):
+        return
+    # ... 其余代码
+```
 
+### 3. 修复"File not found: paris_comprehensive_database.json"错误
+
+**根本原因：**
+- GitHub Actions 的工作目录设置导致路径混乱
+- JSON文件在 `src/` 目录生成，但 `sync_to_db.py` 在错误的目录运行
+
+**解决方案：**
+
+#### 方法A：确保在正确目录运行（推荐）
+```yaml
+- name: Sync Data to Cloud SQL
+  env:
+    DB_HOST: "127.0.0.1"
+    DB_PORT: "5432"
+    DB_USER: ${{ secrets.DB_USER }}
+    DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+    DB_NAME: ${{ secrets.DB_NAME }}
+  run: |
+    cd src
+    ls -la *.json  # 调试：显示JSON文件
+    python sync_to_db.py
+```
+
+#### 方法B：在 `sync_to_db.py` 中增强文件查找
+```python
+def sync_to_database(json_filepath: str):
+    # 检查文件是否存在
+    if not os.path.exists(json_filepath):
+        print(f"❌ File not found: {json_filepath}")
+        print(f"   Current directory: {os.getcwd()}")
+        print(f"   Available JSON files:")
+        for f in os.listdir('.'):
+            if f.endswith('.json'):
+                print(f"      - {f}")
+        return
+    # ... 其余代码
+```
+
+## 🎯 智能采集策略：150 + 去重 + 50补充
+
+### 策略说明
+
+**目标：** 收集200个高质量、无重复的POI
+
+**实施步骤：**
+
+1. **第一阶段：初始采集（~150个）**
+   - 按POI类型（餐厅/景点/酒店）平均分配
+   - 每个关键词采集10个POI
+   - 实时去重（地理位置 + 名称相似度）
+
+2. **第二阶段：验证和统计**
+   - 检查每个类型的POI数量
+   - 识别缺口
+
+3. **第三阶段：补充采集（~50个）**
+   - 针对不足的POI类型
+   - 增加每个关键词的采集数量
+   - 继续实时去重
+
+4. **第四阶段：AI增强**
+   - 批量调用Qwen API
+   - 添加标签、分类、价格等信息
+
+### 去重算法
+
+```python
+def is_duplicate(poi: Dict, existing_pois: List[Dict]) -> Tuple[bool, Optional[str]]:
+    """
+    检查POI是否重复
+    
+    检查维度：
+    1. Place ID是否相同（Google的唯一标识）
+    2. 地理位置距离 < 50米 且 名称相似度 > 0.85
+    """
+    # 检查Place ID
+    if poi['google_place_id'] == existing['google_place_id']:
+        return True, "Place ID重复"
+    
+    # 检查地理位置 + 名称
+    distance = haversine_distance(poi_lat, poi_lng, existing_lat, existing_lng)
+    if distance < 50:  # 50米阈值
+        similarity = calculate_name_similarity(poi_name, existing_name)
+        if similarity > 0.85:  # 85%相似度阈值
+            return True, f"位置重复({distance}m) + 名称相似({similarity})"
+    
+    return False, None
+```
+
+### 使用方法
+
+#### 选项1：使用智能采集脚本（推荐）
 ```bash
-psql -h YOUR_DB_HOST -U YOUR_DB_USER -d YOUR_DB_NAME -f sprint1_schema.sql
+cd poi_scrawler/src
+python maps_calling_smart.py
 ```
 
-### 步骤2：配置GitHub Secrets
-
-在GitHub仓库的`Settings > Secrets and variables > Actions`中添加以下secrets：
-
-| Secret名称 | 说明 | 示例 |
-|-----------|------|------|
-| `GOOGLE_MAPS_API_KEY` | Google Maps API密钥 | `AIzaSy...` |
-| `QWEN_API_KEY` | 阿里云Qwen API密钥 | `sk-...` |
-| `GCP_SA_KEY` | Google Cloud服务账号JSON密钥 | `{"type": "service_account",...}` |
-| `GCSQL_INSTANCE_NAME` | Cloud SQL实例连接名 | `project:region:instance` |
-| `DB_USER` | 数据库用户名 | `postgres` |
-| `DB_PASSWORD` | 数据库密码 | `your_password` |
-| `DB_NAME` | 数据库名称 | `poi_database` |
-
-### 步骤3：部署代码
-
-```bash
-# 克隆仓库
-git clone https://github.com/your-username/poi-data-pipeline.git
-cd poi-data-pipeline
-
-# 推送到GitHub（会自动触发workflow）
-git add .
-git commit -m "Initial deployment"
-git push origin main
+#### 选项2：在GitHub Actions中自动选择
+```yaml
+- name: Run POI Data Collection
+  run: |
+    cd src
+    if [ -f "maps_calling_smart.py" ]; then
+      echo "Using smart collection strategy..."
+      python maps_calling_smart.py
+    else
+      python maps_calling.py
+    fi
 ```
 
-### 步骤4：手动触发采集
-
-1. 进入GitHub仓库的`Actions`标签
-2. 选择`POI Data Collection Pipeline`工作流
-3. 点击`Run workflow`按钮
-4. 选择分支并点击`Run workflow`
-
-## 📂 项目结构
+## 📁 文件结构
 
 ```
-poi-data-pipeline/
-├── .github/
-│   └── workflows/
-│       └── collect_data.yml      # GitHub Actions工作流
+poi_scrawler/
 ├── src/
-│   ├── config.py                 # 配置管理
-│   ├── maps_calling.py           # 数据获取和AI增强
-│   └── sync_to_db.py             # 数据库同步
-├── requirements.txt               # Python依赖
-├── .gitignore                    # Git忽略文件
-└── README.md                     # 项目文档
+│   ├── config.py                    # 配置管理（已修复）
+│   ├── maps_calling.py              # 标准采集脚本
+│   ├── maps_calling_smart.py        # 智能采集脚本（新增）
+│   ├── sync_to_db.py                # 数据库同步（已修复）
+│   └── paris_comprehensive_database.json  # 输出文件
+├── requirements.txt
+└── .github/
+    └── workflows/
+        └── poi_data_collection.yml  # GitHub Actions工作流（已修复）
 ```
 
-## ⚙️ 配置说明
+## 🚀 部署步骤
 
-### 修改目标城市
-
-编辑`src/config.py`：
-
-```python
-TARGET_CITY = "Paris"  # 改为您想要的城市
-CITY_ID = "paris"      # 改为对应的city_id
-```
-
-### 调整搜索关键词
-
-编辑`src/config.py`中的`SEARCH_KEYWORDS`：
-
-```python
-SEARCH_KEYWORDS = {
-    "restaurant": [
-        "Michelin restaurants",
-        "French bistros",
-        # 添加更多关键词...
-    ],
-    # ...
-}
-```
-
-### 调整AI批处理大小
-
-```python
-AI_BATCH_SIZE = 20  # 增大以提高速度，减小以降低成本
-```
-
-## 🔧 本地开发与测试
-
-### 安装依赖
+### 1. 替换修改后的文件
 
 ```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-pip install -r requirements.txt
+# 替换 config.py
+cp /home/claude/config.py poi_scrawler/src/config.py
+
+# 替换 sync_to_db.py
+cp /home/claude/sync_to_db.py poi_scrawler/src/sync_to_db.py
+
+# 添加智能采集脚本
+cp /home/claude/maps_calling_smart.py poi_scrawler/src/maps_calling_smart.py
+
+# 替换 GitHub Actions workflow
+cp /home/claude/poi_data_collection.yml .github/workflows/poi_data_collection.yml
 ```
 
-### 本地运行
+### 2. 验证GitHub Secrets
 
+确保以下secrets已配置：
+
+```
+✅ GOOGLE_MAPS_API_KEY
+✅ QWEN_API_KEY
+✅ GCP_SA_KEY
+✅ GCSQL_INSTANCE_NAME
+✅ DB_USER
+✅ DB_PASSWORD
+✅ DB_NAME
+```
+
+### 3. 测试运行
+
+#### 本地测试（数据采集）
 ```bash
-# 启动Cloud SQL Proxy（如果使用Cloud SQL）
-./cloud-sql-proxy your-project:region:instance &
+cd poi_scrawler/src
 
-# 运行数据采集
-cd src
-python maps_calling.py
+# 设置环境变量
+export GOOGLE_MAPS_API_KEY="your_key"
+export QWEN_API_KEY="your_key"
 
-# 运行数据同步
+# 运行智能采集
+python maps_calling_smart.py
+```
+
+#### 本地测试（数据库同步）
+```bash
+# 设置数据库环境变量
+export DB_HOST="127.0.0.1"
+export DB_PORT="5432"
+export DB_USER="your_user"
+export DB_PASSWORD="your_password"
+export DB_NAME="your_db"
+
+# 运行同步
 python sync_to_db.py
 ```
 
-## 📊 数据流程说明
+#### GitHub Actions测试
+```bash
+# 推送到GitHub
+git add .
+git commit -m "Fix: POI collection pipeline issues"
+git push
 
-### 1. 数据采集 (maps_calling.py)
-
-```
-搜索关键词 → Google Places API
-    ↓
-获取Place ID列表
-    ↓
-批量获取详细信息
-    ↓
-筛选有效POI（排除永久关闭）
-    ↓
-按类型分组（restaurant/attraction/hotel）
+# 手动触发workflow
+# 在GitHub仓库页面：Actions → POI Data Collection Pipeline → Run workflow
 ```
 
-### 2. AI增强 (maps_calling.py)
+## 📊 预期结果
 
+### 采集阶段输出
 ```
-POI基础数据（名称、地址、类型）
-    ↓
-生成智能Prompt
-    ↓
-调用阿里云Qwen API
-    ↓
-解析JSON响应
-    ↓
-合并AI数据到POI
-    ↓
-输出：
-  - ai_tags: ['michelin', 'romantic', ...]
-  - categories: ['food', 'romantic']
-  - name_cn: 中文名称
-  - avg_price_per_person: 估算价格
-  - 其他增强字段...
+════════════════════════════════════════════════════════════════════
+✅ SUCCESS!
+════════════════════════════════════════════════════════════════════
+📁 Output file: paris_comprehensive_database.json
+📊 Final Statistics:
+   - Total POIs: 200
+   - Restaurants: 67
+   - Attractions: 66
+   - Hotels: 67
+   - Target Achievement: 200/200 (100.0%)
+════════════════════════════════════════════════════════════════════
 ```
 
-### 3. 数据同步 (sync_to_db.py)
-
+### 同步阶段输出
 ```
-读取JSON文件
-    ↓
-按POI类型分组
-    ↓
-准备数据（处理PostGIS地理坐标）
-    ↓
-构建Upsert SQL
-    ↓
-批量执行（execute_values）
-    ↓
-提交事务
-```
+════════════════════════════════════════════════════════════════════
+📤 Database Synchronization - Starting
+════════════════════════════════════════════════════════════════════
 
-## 🎯 核心特性
+✅ Loaded 200 POIs from paris_comprehensive_database.json
 
-### ✅ 智能数据采集
+📊 POI Distribution:
+   Restaurant: 67
+   Attraction: 66
+   Hotel: 67
 
-- 使用多个关键词全面搜索
-- 自动去重（基于Place ID）
-- 获取完整的POI详细信息（评分、照片、营业时间等）
-- 过滤永久关闭的POI
+✅ Database connection established
 
-### 🤖 AI智能标注
+🔄 Syncing 67 restaurants...
+✅ Synced 67 restaurant records
 
-- 使用阿里云Qwen-Max模型
-- 26个精准标签（文化、美食、娱乐等）
-- 8个主分类
-- 中文名称翻译
-- 价格预估和档位分类
-- 米其林星级识别
-- 景点游玩时长估算
+🔄 Syncing 66 attractions...
+✅ Synced 66 attraction records
 
-### 🔄 数据库同步
+🔄 Syncing 67 hotels...
+✅ Synced 67 hotel records
 
-- Upsert机制（INSERT ... ON CONFLICT）
-- PostGIS地理坐标处理
-- 批量操作（高性能）
-- 事务保证（原子性）
-- 自动更新时间戳
-
-### 🛡️ 生产级质量
-
-- 错误处理和重试机制
-- 详细日志输出
-- API速率限制控制
-- 安全的认证方式（Cloud SQL Auth Proxy）
-- 自动化调度（GitHub Actions）
-
-## 📈 性能指标
-
-| 指标 | 数值 |
-|------|------|
-| POI处理速度 | ~20个POI/分钟（含AI标注） |
-| Google Maps API调用 | ~150次/运行（巴黎） |
-| Qwen API Token消耗 | ~500 tokens/POI |
-| 数据库写入速度 | ~1000条/秒（批量操作） |
-| 总运行时间 | ~15-20分钟（完整流程） |
-
-## 💰 成本估算
-
-### Google Maps API
-
-- 免费额度：$200/月
-- Places API: $17/1000次请求
-- 估算成本：~$2.50/周运行
-
-### 阿里云Qwen API
-
-- Qwen-Max: ¥0.04/1000 tokens
-- 估算成本：~¥3/周运行（约$0.42）
-
-### Google Cloud SQL
-
-- db-f1-micro: ~$9/月
-- 10GB存储: ~$1.7/月
-- 估算成本：~$10.7/月
-
-**总成本：~$20-30/月**（包含所有服务）
-
-## 🔍 故障排查
-
-### 问题1：GitHub Actions运行失败
-
-**检查清单：**
-- [ ] 所有Secrets是否正确配置？
-- [ ] Cloud SQL实例是否运行中？
-- [ ] 服务账号是否有正确权限？
-
-### 问题2：AI标注结果不准确
-
-**解决方案：**
-- 调整`config.py`中的Prompt模板
-- 增加示例POI
-- 调整temperature参数（当前0.7）
-
-### 问题3：数据库连接超时
-
-**解决方案：**
-```yaml
-# 增加代理启动等待时间
-sleep 5  # 改为 sleep 10
+════════════════════════════════════════════════════════════════════
+✅ SUCCESS!
+════════════════════════════════════════════════════════════════════
+📊 Total records synced: 200
+════════════════════════════════════════════════════════════════════
 ```
 
-### 问题4：API配额超限
+## 🔧 故障排除
 
-**解决方案：**
-- 减少`POIS_PER_KEYWORD`
-- 减少`SEARCH_KEYWORDS`数量
-- 增加API调用间隔`time.sleep()`
+### 问题1：仍然报"Database configuration incomplete"
+```bash
+# 检查config.py是否正确更新
+grep "require_db" poi_scrawler/src/config.py
 
-## 📝 开发路线图
+# 确保maps_calling.py调用时使用require_db=False
+grep "validate_config" poi_scrawler/src/maps_calling.py
+```
 
-- [x] 基础数据采集
-- [x] AI智能标注
-- [x] 数据库同步
-- [x] GitHub Actions自动化
-- [ ] 增量更新（仅更新变化的POI）
-- [ ] 多城市支持
-- [ ] 实时营业状态更新
-- [ ] Web管理界面
-- [ ] 数据质量监控面板
+### 问题2：JSON文件找不到
+```bash
+# 检查文件是否生成
+ls -la poi_scrawler/src/*_comprehensive_database.json
 
-## 🤝 贡献指南
+# 检查工作目录
+pwd
+```
 
-欢迎提交Issue和Pull Request！
+### 问题3：数据库连接失败
+```bash
+# 检查Cloud SQL Proxy是否运行
+ps aux | grep cloud-sql-proxy
 
-**⭐ 如果这个项目对您有帮助，请给个Star！**
+# 测试本地连接
+nc -zv 127.0.0.1 5432
+```
+
+## 📈 性能优化建议
+
+1. **API成本控制**
+   - Google Maps API: 每个POI需要2次调用（搜索+详情）
+   - Qwen API: 批量处理，每批20个POI
+   - 预计成本：~$5-10 per 200 POIs
+
+2. **执行时间**
+   - 数据采集：~30-45分钟（包含API等待时间）
+   - AI增强：~5-10分钟
+   - 数据库同步：~1-2分钟
+   - 总计：~40-60分钟
+
+3. **并发优化**（可选）
+   - 使用异步请求提高采集速度
+   - 注意API速率限制
+
+## 📝 下一步计划
+
+- [ ] 部署修复后的代码
+- [ ] 测试GitHub Actions workflow
+- [ ] 监控第一次完整运行
+- [ ] 根据结果调整参数（如去重阈值）
+- [ ] 考虑添加数据质量报告
