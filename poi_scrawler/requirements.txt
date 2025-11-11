@@ -1,14 +1,13 @@
+# POI Data Collection Pipeline Dependencies
+
 # Google Maps API
 googlemaps==4.10.0
 
-# OpenAI SDK (用于调用阿里云Qwen)
-openai==1.54.0
+# OpenAI SDK (用于调用Qwen API)
+openai>=2.7.2
 
-# 数据库连接
-psycopg2-binary==2.9.9
+# PostgreSQL数据库
+psycopg2-binary==2.9.11
 
-# 数据处理
-pydantic>=2.0
-
-# HTTP请求（备用）
-requests==2.31.0
+# 其他依赖
+requests>=2.32.5
