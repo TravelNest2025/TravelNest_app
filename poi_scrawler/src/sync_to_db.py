@@ -415,3 +415,6 @@ def main():
     
     # 执行同步
     sync_to_database(json_filepath, mode=args.mode)
+
+if __name__ == "__main__":
+    main()
