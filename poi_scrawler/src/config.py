@@ -12,7 +12,7 @@ from typing import Dict, List
 
 # 阿里云Qwen API配置 (通过OpenAI SDK调用)
 QWEN_API_KEY = os.environ.get("QWEN_API_KEY")  # 阿里云API Key
-QWEN_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"  # 阿里云兼容端点
+QWEN_BASE_URL = "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"  # 阿里云兼容端点
 QWEN_MODEL = "qwen3-max-preview"  # 使用qwen-max模型
 
 # Google Maps API配置
