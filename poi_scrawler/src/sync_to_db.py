@@ -29,14 +29,9 @@ def get_db_connection():
 # ==============================================================================
 
 def prepare_restaurant_data(pois: List[Dict]) -> Tuple[List[str], List[Tuple]]:
-    """
-    准备餐厅数据
-    
-    Returns:
-        (列名列表, 数据元组列表)
-    """
     columns = [
         'google_place_id', 'city_id', 'name', 'name_cn',
+        'lng', 'lat',  
         'address', 'phone', 'website',
         'rating', 'review_count', 'price_level', 'price_range_label',
         'avg_price_per_person', 'currency',
@@ -54,7 +49,6 @@ def prepare_restaurant_data(pois: List[Dict]) -> Tuple[List[str], List[Tuple]]:
             poi.get('city_id', CITY_ID),
             poi.get('name'),
             poi.get('name_cn'),
-            # PostGIS地理坐标：经度, 纬度
             location.get('lng'),
             location.get('lat'),
             poi.get('address'),
@@ -81,9 +75,9 @@ def prepare_restaurant_data(pois: List[Dict]) -> Tuple[List[str], List[Tuple]]:
 
 
 def prepare_attraction_data(pois: List[Dict]) -> Tuple[List[str], List[Tuple]]:
-    """准备景点数据"""
     columns = [
         'google_place_id', 'city_id', 'name', 'name_cn',
+        'lng', 'lat',  # 添加这两个
         'address', 'phone', 'website',
         'rating', 'review_count',
         'ticket_price', 'price_range_label', 'currency', 'is_free_entry',
@@ -128,9 +122,9 @@ def prepare_attraction_data(pois: List[Dict]) -> Tuple[List[str], List[Tuple]]:
 
 
 def prepare_hotel_data(pois: List[Dict]) -> Tuple[List[str], List[Tuple]]:
-    """准备酒店数据"""
     columns = [
         'google_place_id', 'city_id', 'name', 'name_cn',
+        'lng', 'lat',  # 添加这两个
         'address', 'phone', 'website',
         'rating', 'review_count',
         'price_per_night', 'price_range_label', 'currency',
