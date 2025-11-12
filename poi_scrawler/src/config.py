@@ -34,6 +34,7 @@ DB_CONFIG = {
 # 目标城市
 TARGET_CITY = "Paris"
 CITY_ID = "paris"
+DB_SCHEMA = "poi_data"
 
 # AI处理批次大小
 AI_BATCH_SIZE = 20  # 每批处理20个POI，平衡速度和成本
