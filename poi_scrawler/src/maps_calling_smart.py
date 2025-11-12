@@ -161,7 +161,7 @@ def fetch_place_details(gmaps_client, place_id: str) -> Optional[Dict]:
             'place_id', 'name', 'formatted_address', 'geometry',
             'rating', 'user_ratings_total', 'website',
             'international_phone_number', 'opening_hours',
-            'price_level', 'photos', 'types', 'business_status'
+            'price_level', 'photo', 'type', 'business_status'
         ]
         
         result = gmaps_client.place(place_id=place_id, fields=fields, language='en')
@@ -173,8 +173,9 @@ def fetch_place_details(gmaps_client, place_id: str) -> Optional[Dict]:
         
         # 提取照片URL
         photo_urls = []
-        if 'photos' in place:
-            for photo in place['photos'][:5]:
+        photos = place.get('photo', [])  # ✅
+        if photos:
+            for photo in photos[:5]:
                 photo_reference = photo['photo_reference']
                 photo_url = f"https://maps.googleapis.com/maps/api/place/photo?maxwidth=1600&photoreference={photo_reference}&key={GOOGLE_MAPS_API_KEY}"
                 photo_urls.append(photo_url)
@@ -197,7 +198,7 @@ def fetch_place_details(gmaps_client, place_id: str) -> Optional[Dict]:
             "price_level": place.get('price_level'),
             "photo_urls": photo_urls,
             "primary_photo_url": photo_urls[0] if photo_urls else None,
-            "google_types": place.get('types', []),
+            "google_types": place.get('type', []),
             "business_status": place.get('business_status', 'OPERATIONAL')
         }
     
