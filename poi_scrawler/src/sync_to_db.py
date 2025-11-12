@@ -171,51 +171,40 @@ def prepare_hotel_data(pois: List[Dict]) -> Tuple[List[str], List[Tuple]]:
 # ==============================================================================
 
 def build_upsert_sql(table_name: str, columns: List[str], has_location: bool = True) -> str:
-    """
-    构建Upsert SQL语句
-    
-    Args:
-        table_name: 表名
-        columns: 列名列表（不包含location）
-        has_location: 是否有地理位置字段
-    
-    Returns:
-        SQL语句
-    """
-    # 添加 schema 前缀
     full_table_name = f"{DB_SCHEMA}.{table_name}"
-
-    # 构建插入列名
+    
     insert_columns = []
     values_placeholders = []
     
+    lng_lat_consumed = False  # 标记 lng/lat 是否已被消费
+    
     for col in columns:
         if col == 'lng':
-            # 跳过 lng，它会在 address 前被处理
+            # 跳过 lng，等待在 address 时处理
             continue
         elif col == 'lat':
-            # 跳过 lat，它会在 address 前被处理
+            # 跳过 lat，等待在 address 时处理
             continue
         elif col == 'address' and has_location:
-            # 在 address 之前插入 location 列
+            # 在 address 之前插入 location
             insert_columns.append('location')
             values_placeholders.append('ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography')
-        
-        insert_columns.append(col)
-        values_placeholders.append('%s')
+            lng_lat_consumed = True
+            # 然后继续处理 address
+            insert_columns.append(col)
+            values_placeholders.append('%s')
+        else:
+            # 普通列
+            insert_columns.append(col)
+            values_placeholders.append('%s')
     
     insert_cols_str = ', '.join(insert_columns)
     
-    # 构建UPDATE子句（排除主键和location）
+    # 构建 UPDATE 子句
     update_clauses = []
     for col in columns:
         if col not in ['google_place_id', 'lng', 'lat']:
             update_clauses.append(f"{col} = EXCLUDED.{col}")
-    
-    if has_location:
-        # 需要特殊处理location更新
-        # 注意：EXCLUDED中没有location列，需要从经纬度重新构造
-        pass  # location会在下面的逻辑中处理
     
     update_clauses.append('last_updated = CURRENT_TIMESTAMP')
     update_str = ', '.join(update_clauses)
