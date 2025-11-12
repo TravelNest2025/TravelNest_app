@@ -7,7 +7,7 @@ import json
 import psycopg2
 from psycopg2.extras import execute_values
 from typing import List, Dict, Tuple
-from config import DB_CONFIG, CITY_ID, validate_config
+from config import DB_CONFIG, CITY_ID, DB_SCHEMA, validate_config
 
 # ==============================================================================
 # 数据库连接
@@ -188,6 +188,9 @@ def build_upsert_sql(table_name: str, columns: List[str], has_location: bool = T
     Returns:
         SQL语句
     """
+    # 添加 schema 前缀
+    full_table_name = f"{DB_SCHEMA}.{table_name}"
+
     # 构建插入列名
     insert_columns = []
     values_placeholders = []
@@ -219,7 +222,7 @@ def build_upsert_sql(table_name: str, columns: List[str], has_location: bool = T
     update_str = ', '.join(update_clauses)
     
     sql = f"""
-        INSERT INTO {table_name} ({insert_cols_str})
+        INSERT INTO {full_table_name} ({insert_cols_str})
         VALUES %s
         ON CONFLICT (google_place_id) DO UPDATE SET
             {update_str};
