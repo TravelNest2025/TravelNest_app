@@ -346,10 +346,9 @@ def enrich_pois_with_ai(qwen_client, poi_list: List[Dict], poi_type: str) -> Lis
 # ==============================================================================
 
 def main():
-    """主执行流程 - 智能采集策略"""
+    """主执行流程 - 方案B：清晰两阶段"""
     print("\n" + "="*70)
-    print("🌍 Smart POI Data Collection Pipeline - Starting")
-    print(f"   Target: {TARGET_POI_COUNT} POIs | Strategy: 150 + Dedup + 50 Supplement")
+    print("🌍 Smart POI Data Collection Pipeline")
     print("="*70 + "\n")
     
     # 验证配置
@@ -359,137 +358,137 @@ def main():
     
     # 初始化客户端
     gmaps_client, qwen_client = initialize_clients()
-    if not gmaps_client or not qwen_client:
-        print("\n❌ Client initialization failed. Exiting...")
+    if not gmaps_client:
+        print("\n❌ Google Maps client initialization failed. Exiting...")
         return
     
-    # ==========================================================================
-    # 第1阶段：初始采集（目标150个，按类型分配）
-    # ==========================================================================
+    # ========================================================================
+    # PHASE 1: 数据采集
+    # ========================================================================
     
-    print("\n" + "="*70)
-    print("📥 PHASE 1: Initial Collection (Target ~150 POIs)")
-    print("="*70)
+    raw_data_file = f"{CITY_ID}_raw_pois.json"
     
-    all_pois_by_type = defaultdict(list)
-    
-    # 按类型分配目标数量（各占1/3）
-    target_per_type = INITIAL_COLLECTION_COUNT // 3
-    
-    for poi_type, keywords in SEARCH_KEYWORDS.items():
-        print(f"\n--- {poi_type.upper()} (Target: {target_per_type}) ---")
+    if os.path.exists(raw_data_file) and os.environ.get('SKIP_COLLECTION') == 'true':
+        print("="*70)
+        print("⏭️  SKIPPING PHASE 1: Using existing raw data")
+        print("="*70 + "\n")
         
-        collected = collect_pois_round(
-            gmaps_client=gmaps_client,
-            poi_type=poi_type,
-            keywords=keywords,
-            limit_per_keyword=POIS_PER_KEYWORD_INITIAL,
-            existing_pois=[]
-        )
+        with open(raw_data_file, 'r', encoding='utf-8') as f:
+            all_raw_pois = json.load(f)
         
-        all_pois_by_type[poi_type].extend(collected)
-        print(f"   ✅ Collected {len(collected)} {poi_type} POIs")
-    
-    # 统计第一阶段结果
-    phase1_total = sum(len(pois) for pois in all_pois_by_type.values())
-    
-    print(f"\n{'='*70}")
-    print(f"📊 Phase 1 Summary:")
-    print(f"{'='*70}")
-    for poi_type, pois in all_pois_by_type.items():
-        print(f"   {poi_type.capitalize()}: {len(pois)} POIs")
-    print(f"   Total: {phase1_total} POIs (去重后)")
-    print(f"{'='*70}")
-    
-    # ==========================================================================
-    # 第2阶段：补充采集（如果需要）
-    # ==========================================================================
-    
-    if phase1_total < TARGET_POI_COUNT:
-        shortage = TARGET_POI_COUNT - phase1_total
+        print(f"✅ Loaded {len(all_raw_pois)} POIs from {raw_data_file}")
+    else:
+        print("="*70)
+        print("📥 PHASE 1: DATA COLLECTION")
+        print("="*70 + "\n")
         
-        print(f"\n{'='*70}")
-        print(f"📥 PHASE 2: Supplement Collection (Need {shortage} more POIs)")
-        print(f"{'='*70}")
+        # 调用你原有的采集逻辑
+        all_pois_by_type = defaultdict(list)
         
-        # 计算每个类型需要补充多少
-        shortage_per_type = shortage // 3 + 1
+        target_per_type = INITIAL_COLLECTION_COUNT // 3
         
         for poi_type, keywords in SEARCH_KEYWORDS.items():
-            current_count = len(all_pois_by_type[poi_type])
-            target_count = TARGET_POI_COUNT // 3
+            print(f"\n--- {poi_type.upper()} (Target: {target_per_type}) ---")
             
-            if current_count >= target_count:
-                print(f"\n--- {poi_type.upper()}: Already sufficient ({current_count}/{target_count}) ---")
-                continue
-            
-            needed = target_count - current_count
-            print(f"\n--- {poi_type.upper()}: Need {needed} more ---")
-            
-            # 使用不同的关键词或增加每个关键词的数量
-            supplemented = collect_pois_round(
+            collected = collect_pois_round(
                 gmaps_client=gmaps_client,
                 poi_type=poi_type,
                 keywords=keywords,
-                limit_per_keyword=POIS_PER_KEYWORD_SUPPLEMENT * 2,  # 增加每个关键词的数量
-                existing_pois=all_pois_by_type[poi_type]
+                limit_per_keyword=POIS_PER_KEYWORD_INITIAL,
+                existing_pois=[]
             )
             
-            all_pois_by_type[poi_type].extend(supplemented)
-            print(f"   ✅ Supplemented {len(supplemented)} {poi_type} POIs")
+            all_pois_by_type[poi_type].extend(collected)
+            print(f"   ✅ Collected {len(collected)} {poi_type} POIs")
         
-        phase2_total = sum(len(pois) for pois in all_pois_by_type.values())
+        phase1_total = sum(len(pois) for pois in all_pois_by_type.values())
         
-        print(f"\n{'='*70}")
-        print(f"📊 Phase 2 Summary:")
-        print(f"{'='*70}")
-        for poi_type, pois in all_pois_by_type.items():
-            print(f"   {poi_type.capitalize()}: {len(pois)} POIs")
-        print(f"   Total: {phase2_total} POIs")
-        print(f"{'='*70}")
-    
-    # ==========================================================================
-    # 第3阶段：AI增强
-    # ==========================================================================
-    
-    print(f"\n{'='*70}")
-    print("🤖 PHASE 3: AI Enhancement")
-    print(f"{'='*70}")
-    
-    all_enriched_pois = []
-    
-    for poi_type, pois in all_pois_by_type.items():
-        if not pois:
-            continue
+        # 补充采集（如果需要）
+        if phase1_total < TARGET_POI_COUNT:
+            shortage = TARGET_POI_COUNT - phase1_total
+            print(f"\n📥 Supplemental Collection (Need {shortage} more POIs)\n")
+            
+            for poi_type, keywords in SEARCH_KEYWORDS.items():
+                current_count = len(all_pois_by_type[poi_type])
+                target_count = TARGET_POI_COUNT // 3
+                
+                if current_count >= target_count:
+                    continue
+                
+                needed = target_count - current_count
+                print(f"--- {poi_type.upper()}: Need {needed} more ---")
+                
+                supplemented = collect_pois_round(
+                    gmaps_client=gmaps_client,
+                    poi_type=poi_type,
+                    keywords=keywords,
+                    limit_per_keyword=POIS_PER_KEYWORD_SUPPLEMENT * 2,
+                    existing_pois=all_pois_by_type[poi_type]
+                )
+                
+                all_pois_by_type[poi_type].extend(supplemented)
+                print(f"   ✅ Supplemented {len(supplemented)} {poi_type} POIs")
         
-        enriched = enrich_pois_with_ai(qwen_client, pois, poi_type)
-        all_enriched_pois.extend(enriched)
+        # 合并为一个列表
+        all_raw_pois = []
+        for pois in all_pois_by_type.values():
+            all_raw_pois.extend(pois)
+        
+        # 保存原始数据（检查点）
+        with open(raw_data_file, 'w', encoding='utf-8') as f:
+            json.dump(all_raw_pois, f, ensure_ascii=False, indent=2)
+        
+        print(f"\n✅ Phase 1 Complete: {len(all_raw_pois)} POIs saved to {raw_data_file}")
     
-    # ==========================================================================
-    # 第4阶段：保存结果
-    # ==========================================================================
+    # ========================================================================
+    # PHASE 2: AI增强
+    # ========================================================================
+    
+    if os.environ.get('SKIP_AI_ENHANCEMENT') == 'true':
+        print("\n⏭️  SKIPPING PHASE 2: AI Enhancement\n")
+        final_pois = all_raw_pois
+    else:
+        if not qwen_client:
+            print("\n⚠️  Qwen client not available, skipping AI enhancement\n")
+            final_pois = all_raw_pois
+        else:
+            print("\n" + "="*70)
+            print("🤖 PHASE 2: AI ENHANCEMENT")
+            print("="*70 + "\n")
+            
+            # 按类型分组
+            grouped = defaultdict(list)
+            for poi in all_raw_pois:
+                grouped[poi['poi_type']].append(poi)
+            
+            final_pois = []
+            
+            for poi_type, poi_list in grouped.items():
+                enriched = enrich_pois_with_ai(qwen_client, poi_list, poi_type)
+                final_pois.extend(enriched)
+    
+    # ========================================================================
+    # 保存最终结果
+    # ========================================================================
     
     output_filename = f"{CITY_ID}_comprehensive_database.json"
     
-    try:
-        with open(output_filename, 'w', encoding='utf-8') as f:
-            json.dump(all_enriched_pois, f, ensure_ascii=False, indent=2)
-        
-        print(f"\n{'='*70}")
-        print(f"✅ SUCCESS!")
-        print(f"{'='*70}")
-        print(f"📁 Output file: {output_filename}")
-        print(f"📊 Final Statistics:")
-        print(f"   - Total POIs: {len(all_enriched_pois)}")
-        print(f"   - Restaurants: {sum(1 for p in all_enriched_pois if p.get('poi_type') == 'restaurant')}")
-        print(f"   - Attractions: {sum(1 for p in all_enriched_pois if p.get('poi_type') == 'attraction')}")
-        print(f"   - Hotels: {sum(1 for p in all_enriched_pois if p.get('poi_type') == 'hotel')}")
-        print(f"   - Target Achievement: {len(all_enriched_pois)}/{TARGET_POI_COUNT} ({len(all_enriched_pois)/TARGET_POI_COUNT*100:.1f}%)")
-        print(f"{'='*70}\n")
+    with open(output_filename, 'w', encoding='utf-8') as f:
+        json.dump(final_pois, f, ensure_ascii=False, indent=2)
     
-    except Exception as e:
-        print(f"\n❌ Error saving output file: {e}")
-
-
-if __name__ == "__main__":
-    main()
+    print(f"\n{'='*70}")
+    print(f"✅ SUCCESS!")
+    print(f"{'='*70}")
+    print(f"📁 Output file: {output_filename}")
+    print(f"📊 Final Statistics:")
+    print(f"   - Total POIs: {len(final_pois)}")
+    
+    by_type = defaultdict(int)
+    for poi in final_pois:
+        by_type[poi.get('poi_type', 'unknown')] += 1
+    
+    for poi_type, count in by_type.items():
+        print(f"   - {poi_type.capitalize()}: {count}")
+    
+    print(f"   - Target Achievement: {len(final_pois)}/{TARGET_POI_COUNT} ({len(final_pois)/TARGET_POI_COUNT*100:.1f}%)")
+    print(f"{'='*70}\n")
