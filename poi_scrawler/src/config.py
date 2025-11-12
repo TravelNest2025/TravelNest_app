@@ -271,26 +271,30 @@ Now analyze the POI list and return the enriched data in the exact format specif
 # 验证函数
 # ==============================================================================
 
-def validate_config(require_db: bool = False):
+def validate_config(require_db: bool = False, require_apis: bool = True):
     """
     验证配置是否完整
     
     Args:
         require_db: 是否需要验证数据库配置（默认False）
-            - False: 只验证API密钥（用于数据采集阶段）
-            - True: 同时验证数据库配置（用于数据同步阶段）
+            - False: 不验证数据库配置
+            - True: 验证数据库配置（用于数据同步阶段）
+        require_apis: 是否需要验证API密钥（默认True）
+            - True: 验证API密钥（用于数据采集阶段）
+            - False: 不验证API密钥（用于仅数据库同步）
     
     Returns:
         bool: 配置是否有效
     """
     errors = []
     
-    # API密钥检查（总是需要）
-    if not QWEN_API_KEY:
-        errors.append("❌ QWEN_API_KEY environment variable not set")
-    
-    if not GOOGLE_MAPS_API_KEY:
-        errors.append("❌ GOOGLE_MAPS_API_KEY environment variable not set")
+    # API密钥检查（可选）
+    if require_apis:
+        if not QWEN_API_KEY:
+            errors.append("❌ QWEN_API_KEY environment variable not set")
+        
+        if not GOOGLE_MAPS_API_KEY:
+            errors.append("❌ GOOGLE_MAPS_API_KEY environment variable not set")
     
     # 数据库配置检查（可选）
     if require_db:
