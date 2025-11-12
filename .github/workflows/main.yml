@@ -48,6 +48,7 @@ jobs:
         run: |
           cd src
           python maps_calling_smart.py  # 直接运行smart版本
+        continue-on-error: false
       
       # ========================================
       # 3. 验证采集结果
@@ -65,7 +66,7 @@ jobs:
           import os
           import glob
           
-          json_files = glob.glob("src/*_comprehensive_database.json")
+          json_files = glob.glob("*_comprehensive_database.json")
           
           if not json_files:
               print("❌ No JSON files found!")
