@@ -365,7 +365,7 @@ def main():
     import sys
     
     # 验证数据库配置（sync阶段必须验证数据库）
-    if not validate_config(require_db=True):
+    if not validate_config(require_db=True, require_apis=False):
         print("\n❌ Configuration validation failed. Exiting...")
         return
     
