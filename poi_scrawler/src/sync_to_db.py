@@ -242,15 +242,22 @@ def upsert_pois(conn, table_name: str, columns: List[str], data_tuples: List[Tup
 # 主流程
 # ==============================================================================
 
-def sync_to_database(json_filepath: str):
+def sync_to_database(json_filepath: str, mode: str = 'upsert'):
     """
     将JSON文件中的数据同步到数据库
     
     Args:
         json_filepath: JSON文件路径
+        mode: 同步模式
+            - 'upsert': 更新或插入（默认）
+            - 'replace': 先删除该城市的所有数据，再插入
     """
     print("\n" + "="*60)
     print("📤 Database Synchronization - Starting")
+    print("="*60)
+    print(f"   Mode: {mode.upper()}")
+    print(f"   City: {CITY_ID}")
+    print(f"   File: {json_filepath}")
     print("="*60 + "\n")
     
     # 1. 加载JSON文件
@@ -294,9 +301,13 @@ def sync_to_database(json_filepath: str):
         return
     
     try:
+        # 4. 如果是 replace 模式，先清空该城市的数据
+        if mode == 'replace':
+            clear_city_data(conn, CITY_ID)
+        
         total_synced = 0
         
-        # 4. 同步餐厅
+        # 5. 同步餐厅
         if grouped_pois['restaurant']:
             print(f"\n🔄 Syncing {len(grouped_pois['restaurant'])} restaurants...")
             columns, data = prepare_restaurant_data(grouped_pois['restaurant'])
@@ -304,7 +315,7 @@ def sync_to_database(json_filepath: str):
             print(f"✅ Synced {rows} restaurant records")
             total_synced += rows
         
-        # 5. 同步景点
+        # 6. 同步景点
         if grouped_pois['attraction']:
             print(f"\n🔄 Syncing {len(grouped_pois['attraction'])} attractions...")
             columns, data = prepare_attraction_data(grouped_pois['attraction'])
@@ -312,7 +323,7 @@ def sync_to_database(json_filepath: str):
             print(f"✅ Synced {rows} attraction records")
             total_synced += rows
         
-        # 6. 同步酒店
+        # 7. 同步酒店
         if grouped_pois['hotel']:
             print(f"\n🔄 Syncing {len(grouped_pois['hotel'])} hotels...")
             columns, data = prepare_hotel_data(grouped_pois['hotel'])
@@ -339,21 +350,32 @@ def sync_to_database(json_filepath: str):
 def main():
     """主执行流程"""
     import sys
+    import argparse
     
-    # 验证数据库配置（sync阶段必须验证数据库）
+    # 添加命令行参数
+    parser = argparse.ArgumentParser(description='Sync POI data to database')
+    parser.add_argument(
+        '--mode', 
+        choices=['upsert', 'replace'], 
+        default='upsert',
+        help='Sync mode: upsert (update/insert) or replace (delete city data then insert)'
+    )
+    parser.add_argument(
+        '--file', 
+        type=str, 
+        default=None,
+        help='JSON file path'
+    )
+    
+    args = parser.parse_args()
+    
+    # 验证配置
     if not validate_config(require_db=True, require_apis=False):
         print("\n❌ Configuration validation failed. Exiting...")
         return
     
-    # 默认文件名
-    json_filepath = f"{CITY_ID}_comprehensive_database.json"
+    # 确定文件路径
+    json_filepath = args.file or f"{CITY_ID}_comprehensive_database.json"
     
-    # 可以通过命令行参数指定文件
-    if len(sys.argv) > 1:
-        json_filepath = sys.argv[1]
-    
-    sync_to_database(json_filepath)
-
-
-if __name__ == "__main__":
-    main()
+    # 执行同步
+    sync_to_database(json_filepath, mode=args.mode)
