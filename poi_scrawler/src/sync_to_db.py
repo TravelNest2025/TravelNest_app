@@ -170,42 +170,31 @@ def prepare_hotel_data(pois: List[Dict]) -> Tuple[List[str], List[Tuple]]:
 # 数据库操作
 # ==============================================================================
 
-def build_upsert_sql(table_name: str, columns: List[str], has_location: bool = True) -> str:
+def build_upsert_sql(table_name: str, columns: List[str], has_location: bool = True) -> tuple:
     full_table_name = f"{DB_SCHEMA}.{table_name}"
     
     insert_columns = []
-    values_placeholders = []
-    
-    lng_lat_consumed = False  # 标记 lng/lat 是否已被消费
+    template_parts = []
     
     for col in columns:
-        if col == 'lng':
-            # 跳过 lng，等待在 address 时处理
-            continue
-        elif col == 'lat':
-            # 跳过 lat，等待在 address 时处理
+        if col == 'lng' or col == 'lat':
             continue
         elif col == 'address' and has_location:
-            # 在 address 之前插入 location
             insert_columns.append('location')
-            values_placeholders.append('ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography')
-            lng_lat_consumed = True
-            # 然后继续处理 address
-            insert_columns.append(col)
-            values_placeholders.append('%s')
+            template_parts.append('ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography')
+            insert_columns.append('address')
+            template_parts.append('%s')
         else:
-            # 普通列
             insert_columns.append(col)
-            values_placeholders.append('%s')
+            template_parts.append('%s')
     
     insert_cols_str = ', '.join(insert_columns)
+    template_str = '(' + ', '.join(template_parts) + ')'
     
-    # 构建 UPDATE 子句
     update_clauses = []
     for col in columns:
         if col not in ['google_place_id', 'lng', 'lat']:
             update_clauses.append(f"{col} = EXCLUDED.{col}")
-    
     update_clauses.append('last_updated = CURRENT_TIMESTAMP')
     update_str = ', '.join(update_clauses)
     
@@ -216,51 +205,35 @@ def build_upsert_sql(table_name: str, columns: List[str], has_location: bool = T
             {update_str};
     """
     
-    return sql
+    return sql, template_str
 
 
 def upsert_pois(conn, table_name: str, columns: List[str], data_tuples: List[Tuple]) -> int:
-    """
-    执行批量Upsert操作
-    
-    Returns:
-        受影响的行数
-    """
     if not data_tuples:
         return 0
     
     try:
         with conn.cursor() as cursor:
-            sql = build_upsert_sql(table_name, columns, has_location=True)
+            sql, template = build_upsert_sql(table_name, columns, has_location=True)
             
-            # 调试：打印详细信息
             print(f"\n🔍 Debug Info:")
             print(f"   Table: {table_name}")
-            print(f"   Columns in list: {len(columns)}")
-            print(f"   Columns: {columns}")
-            print(f"   First data tuple length: {len(data_tuples[0])}")
-            print(f"   First data tuple: {data_tuples[0][:5]}...")  # 只打印前5个值
-            print(f"   Generated SQL:\n{sql}")
+            print(f"   Template: {template}")
             
-            # 使用execute_values进行批量插入
             execute_values(
                 cursor,
                 sql,
                 data_tuples,
-                template=None,
+                template=template,
                 page_size=100
             )
             
             affected_rows = cursor.rowcount
             conn.commit()
-            
             return affected_rows
     
     except psycopg2.Error as e:
-        print(f"❌ Database error during upsert: {e}")
-        print(f"   SQL was: {sql[:500]}")
-        print(f"   Columns: {columns}")
-        print(f"   Data tuple length: {len(data_tuples[0])}")
+        print(f"❌ Database error: {e}")
         conn.rollback()
         raise
 
