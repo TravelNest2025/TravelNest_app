@@ -190,8 +190,14 @@ def build_upsert_sql(table_name: str, columns: List[str], has_location: bool = T
     values_placeholders = []
     
     for col in columns:
-        if col == 'address' and has_location:
-            # 在address之前插入location列
+        if col == 'lng':
+            # 跳过 lng，它会在 address 前被处理
+            continue
+        elif col == 'lat':
+            # 跳过 lat，它会在 address 前被处理
+            continue
+        elif col == 'address' and has_location:
+            # 在 address 之前插入 location 列
             insert_columns.append('location')
             values_placeholders.append('ST_SetSRID(ST_MakePoint(%s, %s), 4326)::geography')
         
@@ -199,12 +205,11 @@ def build_upsert_sql(table_name: str, columns: List[str], has_location: bool = T
         values_placeholders.append('%s')
     
     insert_cols_str = ', '.join(insert_columns)
-    values_str = ', '.join(values_placeholders)
     
     # 构建UPDATE子句（排除主键和location）
     update_clauses = []
     for col in columns:
-        if col not in ['google_place_id']:
+        if col not in ['google_place_id', 'lng', 'lat']:
             update_clauses.append(f"{col} = EXCLUDED.{col}")
     
     if has_location:
