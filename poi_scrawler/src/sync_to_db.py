@@ -237,6 +237,42 @@ def upsert_pois(conn, table_name: str, columns: List[str], data_tuples: List[Tup
         conn.rollback()
         raise
 
+def clear_city_data(conn, city_id: str):
+    """清空指定城市的所有POI数据"""
+    print(f"\n⚠️  REPLACE MODE: Clearing data for city '{city_id}'...\n")
+    
+    try:
+        with conn.cursor() as cursor:
+            cursor.execute(
+                f"DELETE FROM {DB_SCHEMA}.restaurants WHERE city_id = %s",
+                (city_id,)
+            )
+            r_count = cursor.rowcount
+            
+            cursor.execute(
+                f"DELETE FROM {DB_SCHEMA}.attractions WHERE city_id = %s",
+                (city_id,)
+            )
+            a_count = cursor.rowcount
+            
+            cursor.execute(
+                f"DELETE FROM {DB_SCHEMA}.hotels WHERE city_id = %s",
+                (city_id,)
+            )
+            h_count = cursor.rowcount
+            
+            conn.commit()
+            
+            print(f"   🗑️  Deleted:")
+            print(f"      Restaurants: {r_count}")
+            print(f"      Attractions: {a_count}")
+            print(f"      Hotels: {h_count}")
+            print(f"   ✅ Cleared successfully\n")
+    
+    except Exception as e:
+        print(f"   ❌ Error: {e}")
+        conn.rollback()
+        raise
 
 # ==============================================================================
 # 主流程
