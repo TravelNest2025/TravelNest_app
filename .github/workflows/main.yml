@@ -48,7 +48,6 @@ jobs:
         run: |
           cd src
           python maps_calling_smart.py  # 直接运行smart版本
-        continue-on-error: false
       
       # ========================================
       # 3. 验证采集结果
