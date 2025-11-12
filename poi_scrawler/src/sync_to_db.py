@@ -244,6 +244,15 @@ def upsert_pois(conn, table_name: str, columns: List[str], data_tuples: List[Tup
         with conn.cursor() as cursor:
             sql = build_upsert_sql(table_name, columns, has_location=True)
             
+            # 调试：打印详细信息
+            print(f"\n🔍 Debug Info:")
+            print(f"   Table: {table_name}")
+            print(f"   Columns in list: {len(columns)}")
+            print(f"   Columns: {columns}")
+            print(f"   First data tuple length: {len(data_tuples[0])}")
+            print(f"   First data tuple: {data_tuples[0][:5]}...")  # 只打印前5个值
+            print(f"   Generated SQL:\n{sql}")
+            
             # 使用execute_values进行批量插入
             execute_values(
                 cursor,
@@ -260,6 +269,9 @@ def upsert_pois(conn, table_name: str, columns: List[str], data_tuples: List[Tup
     
     except psycopg2.Error as e:
         print(f"❌ Database error during upsert: {e}")
+        print(f"   SQL was: {sql[:500]}")
+        print(f"   Columns: {columns}")
+        print(f"   Data tuple length: {len(data_tuples[0])}")
         conn.rollback()
         raise
 
