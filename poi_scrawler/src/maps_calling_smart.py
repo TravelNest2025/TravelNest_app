@@ -492,3 +492,6 @@ def main():
     
     print(f"   - Target Achievement: {len(final_pois)}/{TARGET_POI_COUNT} ({len(final_pois)/TARGET_POI_COUNT*100:.1f}%)")
     print(f"{'='*70}\n")
+
+if __name__ == "__main__":
+    main()
