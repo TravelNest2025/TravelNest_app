@@ -144,6 +144,7 @@ def initialize_clients():
         print("✅ Qwen API client initialized")
     except Exception as e:
         print(f"❌ Failed to initialize Qwen client: {e}")
+        print(f"   Error details: {str(e)}")
         return None, None
     
     return gmaps_client, qwen_client
