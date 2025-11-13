@@ -30,18 +30,18 @@ from config import (
 # ==============================================================================
 
 # 目标POI数量
-TARGET_POI_COUNT = 200
+TARGET_POI_COUNT = 300
 
 # 第一轮采集数量（比目标数多采集25%作为缓冲）
-INITIAL_COLLECTION_COUNT = 150
+INITIAL_COLLECTION_COUNT = 225
 
 # 每个关键词搜索的POI数量
-POIS_PER_KEYWORD_INITIAL = 10  # 第一轮：每个关键词10个
-POIS_PER_KEYWORD_SUPPLEMENT = 5  # 补充轮：每个关键词5个
+POIS_PER_KEYWORD_INITIAL = 20  # 第一轮：每个关键词20个
+POIS_PER_KEYWORD_SUPPLEMENT = 10  # 补充轮：每个关键词10个
 
 # 去重参数
-MIN_DISTANCE_METERS = 50  # 最小距离阈值（米），同一地点的不同入口
-SIMILARITY_THRESHOLD = 0.85  # 名称相似度阈值
+MIN_DISTANCE_METERS = 10  # 最小距离阈值（米），同一地点的不同入口
+SIMILARITY_THRESHOLD = 0.95  # 名称相似度阈值
 
 
 # ==============================================================================
@@ -161,7 +161,10 @@ def fetch_place_details(gmaps_client, place_id: str) -> Optional[Dict]:
             'place_id', 'name', 'formatted_address', 'geometry',
             'rating', 'user_ratings_total', 'website',
             'international_phone_number', 'opening_hours',
-            'price_level', 'photo', 'type', 'business_status'
+            'price_level', 'photo', 'type', 'business_status',
+            'editorial_summary',  # ← 新增：Google 的介绍
+            'reviews',            # ← 新增：用户评论
+            'types'
         ]
         
         result = gmaps_client.place(place_id=place_id, fields=fields, language='en')
@@ -171,6 +174,15 @@ def fetch_place_details(gmaps_client, place_id: str) -> Optional[Dict]:
         
         place = result['result']
         
+        # 提取评论摘要（前5条）
+        review_summaries = []
+        reviews = place.get('reviews', [])
+        for review in reviews[:5]:  # 只取前5条
+            review_summaries.append({
+                'rating': review.get('rating'),
+                'text': review.get('text', '')[:200]  # 限制长度
+            })
+
         # 提取照片URL
         photo_urls = []
         photos = place.get('photo', [])  # ✅
@@ -199,7 +211,11 @@ def fetch_place_details(gmaps_client, place_id: str) -> Optional[Dict]:
             "photo_urls": photo_urls,
             "primary_photo_url": photo_urls[0] if photo_urls else None,
             "google_types": place.get('type', []),
-            "business_status": place.get('business_status', 'OPERATIONAL')
+            "business_status": place.get('business_status', 'OPERATIONAL'),
+            "editorial_summary": place.get('editorial_summary', {}).get('overview'),
+            "review_summaries": review_summaries,
+            "price_level": place.get('price_level'),  # 0-4（免费到很贵）
+            "types": place.get('types', [])  # 完整类型列表
         }
     
     except Exception as e:
