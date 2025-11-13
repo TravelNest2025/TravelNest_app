@@ -115,154 +115,141 @@ AVAILABLE_CATEGORIES = [
 
 def get_ai_prompt(poi_type: str, poi_list: List[Dict]) -> str:
     """
-    生成AI标注的Prompt
+    生成AI标注的Prompt（增强版）
     
     Args:
-        poi_type: POI类型 ('restaurant', 'attraction', 'hotel')
-        poi_list: POI列表，每个POI包含name和google_types
+        poi_type: POI类型
+        poi_list: POI列表，包含详细信息
     
     Returns:
         完整的AI prompt字符串
     """
     
-    # 简化POI信息
-    simplified_pois = [
-        {
+    # 简化但保留关键信息
+    simplified_pois = []
+    for poi in poi_list:
+        poi_info = {
             "name": poi.get("name"),
-            "types": poi.get("google_types", []),
-            "address": poi.get("address", "")[:50]  # 只取地址前50个字符
+            "rating": poi.get("rating"),
+            "review_count": poi.get("review_count", 0),
+            "types": poi.get("types", [])
         }
-        for poi in poi_list
-    ]
+        
+        # 添加价格信息（如果有）
+        if poi.get("price_level") is not None:
+            price_labels = {0: "Free", 1: "€", 2: "€€", 3: "€€€", 4: "€€€€"}
+            poi_info["price_level"] = price_labels.get(poi.get("price_level"), "Unknown")
+        
+        # 添加 Google 介绍（如果有）
+        if poi.get("editorial_summary"):
+            poi_info["google_description"] = poi.get("editorial_summary")[:150]
+        
+        # 添加评论关键词（如果有）
+        if poi.get("review_keywords"):
+            poi_info["review_highlights"] = poi.get("review_keywords")
+        
+        simplified_pois.append(poi_info)
     
     # 根据POI类型定制Prompt
     if poi_type == "restaurant":
         specific_instructions = """
 For RESTAURANTS, provide:
-1. **ai_tags**: Select 3-5 relevant tags from the available tags list. Focus on:
-   - Food style (local_cuisine, michelin, fine_dining, cafe)
-   - Dining scene (romantic, scenic_view)
-   - Atmosphere tags if applicable
+1. **ai_tags**: Select 3-5 relevant tags. Consider:
+   - Food style from types and description
+   - Price level indicator
+   - Review highlights (romantic, family_friendly, etc.)
    
-2. **categories**: Select 1-2 categories (usually 'food', optionally add 'romantic', 'leisure', etc.)
+2. **categories**: Select 1-2 categories (usually 'food', optionally 'romantic', 'leisure')
 
-3. **name_cn**: Translate the restaurant name to Chinese (keep original if it's a proper name)
+3. **name_cn**: Chinese translation
 
-4. **avg_price_per_person**: Estimate average price per person in EUR (e.g., 45.00)
+4. **avg_price_per_person**: Estimate based on price_level:
+   - €: 15-30
+   - €€: 30-60
+   - €€€: 60-120
+   - €€€€: 120+
 
-5. **price_range_label**: Choose one from ['low', 'mid', 'high', 'luxury'] based on Paris standards:
-   - low: €50-90
-   - mid: €90-150
-   - high: €150-250
-   - luxury: €250+
+5. **price_range_label**: ['low', 'mid', 'high', 'luxury']
 
-6. **is_michelin**: Boolean, true if it's a Michelin-starred restaurant
+6. **is_michelin**: Check google_description or review_highlights for "michelin"
 
-7. **michelin_stars**: Integer (1-3) if is_michelin is true, otherwise null
+7. **michelin_stars**: 1-3 if is_michelin is true
 """
     
     elif poi_type == "attraction":
         specific_instructions = """
 For ATTRACTIONS, provide:
-1. **ai_tags**: Select 3-5 relevant tags from the available tags list. Focus on:
-   - Type (museum, historical_site, art_gallery, etc.)
-   - Experience (instagram_worthy, family_activity)
-   - Nature tags if applicable
-   
-2. **categories**: Select 1-2 categories (culture, nature, urban, leisure, etc.)
+1. **ai_tags**: Select 3-5 tags based on types and description
 
-3. **name_cn**: Translate the attraction name to Chinese
+2. **categories**: Select 1-2 categories
 
-4. **ticket_price**: Estimate ticket price in EUR (e.g., 15.00), use 0.00 for free attractions
+3. **name_cn**: Chinese translation
 
-5. **price_range_label**: Choose one from ['free', 'low', 'mid', 'high']:
-   - free: €0
-   - low: €0-15
-   - mid: €15-30
-   - high: €30+
+4. **ticket_price**: Estimate based on price_level or google_description
 
-6. **is_free_entry**: Boolean, true if the attraction is free
+5. **price_range_label**: ['free', 'low', 'mid', 'high']
 
-7. **visit_duration**: Estimated visit duration in minutes (e.g., 120)
+6. **is_free_entry**: Boolean
 
-8. **description**: Brief description in English (50-100 words)
+7. **visit_duration**: Estimate in minutes (60-240)
+
+8. **description**: Use google_description if available, or create brief summary
 """
     
     else:  # hotel
         specific_instructions = """
 For HOTELS, provide:
-1. **ai_tags**: Select 3-5 relevant tags from the available tags list. Focus on:
-   - Style (romantic, resort, spa_wellness)
-   - Target audience (kids_friendly, pet_friendly)
+1. **ai_tags**: Select 3-5 tags. Consider:
+   - Review highlights (romantic, spa_wellness, kids_friendly)
    - Location (urban_landmark if in city center)
-   
-2. **categories**: Select 1-2 categories (usually 'romantic', 'family', 'leisure', 'urban')
 
-3. **name_cn**: Translate the hotel name to Chinese (keep brand names in original language)
+2. **categories**: ['romantic', 'family', 'leisure', 'urban']
 
-4. **price_per_night**: Estimate price per night in EUR (e.g., 180.00)
+3. **name_cn**: Chinese translation
 
-5. **price_range_label**: Choose one from ['low', 'mid', 'high', 'luxury'] based on Paris standards:
-   - low: €50-100
-   - mid: €100-200
-   - high: €200-350
-   - luxury: €350+
+4. **price_per_night**: Estimate based on price_level:
+   - €: 50-100
+   - €€: 100-200
+   - €€€: 200-350
+   - €€€€: 350+
 
-6. **star_rating**: Hotel star rating (1-5), or null if not a traditional hotel
+5. **price_range_label**: ['low', 'mid', 'high', 'luxury']
+
+6. **star_rating**: 1-5
 """
     
-    prompt = f"""You are a professional travel data analyst specializing in {TARGET_CITY}. Your task is to analyze a list of POIs and provide structured data.
+    prompt = f"""You are a professional travel data analyst for {TARGET_CITY}.
 
-**AVAILABLE TAGS** (select from these 26 tags):
-{', '.join(AVAILABLE_TAGS)}
+**AVAILABLE TAGS**: {', '.join(AVAILABLE_TAGS)}
 
-**AVAILABLE CATEGORIES** (select from these 8 categories):
-{', '.join(AVAILABLE_CATEGORIES)}
+**AVAILABLE CATEGORIES**: {', '.join(AVAILABLE_CATEGORIES)}
 
 **POI TYPE**: {poi_type}
 
 **INSTRUCTIONS**:
 {specific_instructions}
 
-**POI LIST TO ANALYZE**:
+**POI DATA** (with Google descriptions and review insights):
 {json.dumps(simplified_pois, indent=2, ensure_ascii=False)}
 
 **OUTPUT FORMAT**:
-Your response MUST be a valid JSON object with a single key "enriched_data".
-The value should be an array of objects, one for each POI in the same order as the input.
-
-Each object MUST contain:
-- "name": string (original name for matching)
-- "name_cn": string (Chinese translation)
-- "ai_tags": array of strings (3-5 tags from the available tags)
-- "categories": array of strings (1-2 categories from the available categories)
-- Additional fields based on POI type as specified above
-
-**CRITICAL RULES**:
-1. All tag names must EXACTLY match the available tags list (case-sensitive)
-2. All category names must EXACTLY match the available categories list (case-sensitive)
-3. Return EXACTLY the same number of objects as the input POI list
-4. Use the "name" field to match input and output POIs
-5. DO NOT include any text outside the JSON structure
-6. DO NOT use markdown code blocks (no ```json```)
-
-**EXAMPLE OUTPUT STRUCTURE** (for reference only):
 {{
   "enriched_data": [
     {{
-      "name": "Le Jules Verne",
-      "name_cn": "儒勒·凡尔纳餐厅",
-      "ai_tags": ["fine_dining", "scenic_view", "romantic", "michelin"],
-      "categories": ["food", "romantic"],
-      "avg_price_per_person": 250.00,
-      "price_range_label": "luxury",
-      "is_michelin": true,
-      "michelin_stars": 1
+      "name": "...",
+      "name_cn": "...",
+      "ai_tags": ["tag1", "tag2", ...],
+      "categories": ["cat1", ...],
+      ... (other fields)
     }}
   ]
 }}
 
-Now analyze the POI list and return the enriched data in the exact format specified above.
+**CRITICAL**:
+- Use exact tag/category names from available lists
+- Use google_description and review_highlights to make informed decisions
+- Match "name" field for each POI
+- Return pure JSON, no markdown
 """
     
     return prompt
