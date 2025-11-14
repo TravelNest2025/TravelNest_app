@@ -29,7 +29,7 @@ def get_pois_with_missing_tags(conn, table_name: str) -> List[Dict]:
                 id, 
                 google_place_id, 
                 name,
-                CAST(google_types AS TEXT) as google_types_json,
+                CAST(google_type AS TEXT) as google_types_json,
                 price_level,
                 rating,
                 review_count,
@@ -65,7 +65,7 @@ def get_pois_with_missing_tags(conn, table_name: str) -> List[Dict]:
                 'id': row[0],
                 'google_place_id': row[1],
                 'name': row[2],
-                'google_types': google_types,
+                'google_type': google_types,
                 'price_level': row[4],
                 'rating': row[5] or 0,
                 'review_count': row[6] or 0,
@@ -79,7 +79,7 @@ def get_pois_with_missing_tags(conn, table_name: str) -> List[Dict]:
 def infer_tags_and_categories(poi: Dict, table_name: str) -> Dict:
     """基于 google_types 和其他属性推断 tags 和 categories"""
     
-    google_types = poi.get('google_types', [])
+    google_types = poi.get('google_type', [])
     price_level = poi.get('price_level')
     rating = poi.get('rating', 0)
     review_count = poi.get('review_count', 0)
@@ -182,7 +182,7 @@ def enrich_table(conn, table_name: str):
             updated_count += 1
             
             print(f"   ✅ {poi['name']}")
-            print(f"      Google Types: {poi['google_types'][:3]}{'...' if len(poi['google_types']) > 3 else ''}")
+            print(f"      Google Types: {poi['google_type'][:3]}{'...' if len(poi['google_type']) > 3 else ''}")
             print(f"      → Categories: {final_categories}")
             print(f"      → Tags: {final_tags[:3]}{'...' if len(final_tags) > 3 else ''}")
     
