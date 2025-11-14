@@ -1,9 +1,6 @@
 name: POI Data Collection Pipeline
 
 on:
-  schedule:
-    # 每周一凌晨2点(UTC)运行
-    - cron: '0 2 * * 1'
   
   workflow_dispatch:
     # 允许手动触发
@@ -13,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: ./poi_scrawler
+        working-directory: ./poi_scrawler/src
     
     permissions:
       contents: 'read'
