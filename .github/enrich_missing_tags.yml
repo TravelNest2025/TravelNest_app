@@ -1,0 +1,102 @@
+name: Enrich Missing Tags
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Enrichment mode'
+        required: true
+        type: choice
+        default: 'rule-based'
+        options:
+          - rule-based    # 规则映射（免费、快速）
+          - ai-enhanced   # AI 增强（调用 API，仅高价值 POI）
+          - both          # 两者都执行
+
+jobs:
+  enrich-tags:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./enrichment
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+      
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+      
+      - name: Install dependencies
+        run: |
+          pip install psycopg2-binary googlemaps openai
+      
+      - name: Download Cloud SQL Auth Proxy
+        run: |
+          wget https://dl.google.com/cloudsql/cloud_sql_proxy.linux.amd64 -O cloud_sql_proxy
+          chmod +x cloud_sql_proxy
+      
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+      
+      - name: Start Cloud SQL Proxy
+        run: |
+          ./cloud_sql_proxy ${{ secrets.DB_INSTANCE_CONNECTION_NAME }} &
+          sleep 5
+          echo "Cloud SQL Proxy started"
+      
+      - name: Run Rule-Based Enrichment
+        if: ${{ github.event.inputs.mode == 'rule-based' || github.event.inputs.mode == 'both' }}
+        env:
+          DB_HOST: "127.0.0.1"
+          DB_PORT: "5432"
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+        run: |
+          echo "🏷️  Starting Rule-Based Enrichment..."
+          cd enrichment
+          python enrich_tags_from_types.py
+          echo "✅ Rule-Based Enrichment completed"
+      
+      - name: Run AI Enhancement
+        if: ${{ github.event.inputs.mode == 'ai-enhanced' || github.event.inputs.mode == 'both' }}
+        env:
+          DB_HOST: "127.0.0.1"
+          DB_PORT: "5432"
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
+          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
+        run: |
+          echo "🤖 Starting AI-Powered Enhancement..."
+          cd enrichment
+          python enrich_tags_with_ai.py
+          echo "✅ AI Enhancement completed"
+      
+      - name: Cleanup
+        if: always()
+        run: |
+          echo "🧹 Stopping Cloud SQL Proxy..."
+          pkill -f cloud_sql_proxy || true
+          echo "✅ Cleanup completed"
+      
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "======================================"
+          echo "📊 Enrichment Summary"
+          echo "======================================"
+          echo "Mode: ${{ github.event.inputs.mode }}"
+          echo "Status: Completed"
+          echo "======================================"
+```
+
+---
+
