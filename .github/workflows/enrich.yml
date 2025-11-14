@@ -40,9 +40,34 @@ jobs:
       
       - name: Start Cloud SQL Proxy
         run: |
-          ./cloud_sql_proxy ${{ secrets.DB_INSTANCE_CONNECTION_NAME }} &
-          sleep 5
-          echo "✅ Cloud SQL Proxy started"
+          echo "🚀 Starting Cloud SQL Proxy..."
+          
+          # 启动 Cloud SQL Proxy（明确指定端口映射）
+          ./cloud_sql_proxy \
+            --port=5432 \
+            ${{ secrets.DB_INSTANCE_CONNECTION_NAME }} &
+          
+          PROXY_PID=$!
+          echo "Cloud SQL Proxy PID: $PROXY_PID"
+          
+          # 等待代理启动
+          echo "⏳ Waiting for proxy to be ready..."
+          for i in {1..30}; do
+            if pg_isready -h 127.0.0.1 -p 5432 2>/dev/null; then
+              echo "✅ Cloud SQL Proxy is ready!"
+              break
+            fi
+            if [ $i -eq 30 ]; then
+              echo "❌ Timeout waiting for Cloud SQL Proxy"
+              exit 1
+            fi
+            echo "   Attempt $i/30..."
+            sleep 2
+          done
+          
+          # 验证连接
+          echo "🔍 Testing connection..."
+          nc -zv 127.0.0.1 5432 || echo "⚠️  Port not responding"
       
       - name: Verify directory structure
         run: |
@@ -71,6 +96,15 @@ jobs:
           echo "======================================"
           echo "🏷️  Rule-Based Enrichment"
           echo "======================================"
+          
+          # 调试：打印连接信息（不打印密码）
+          echo "🔍 Connection details:"
+          echo "   Host: $DB_HOST"
+          echo "   Port: $DB_PORT"
+          echo "   Database: $DB_NAME"
+          echo "   User: $DB_USER"
+          echo ""
+          
           python enrich_tags_from_types.py
       
       - name: Run AI Enhancement
