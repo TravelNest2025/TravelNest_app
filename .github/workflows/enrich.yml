@@ -107,48 +107,4 @@ jobs:
           echo "======================================"
           echo "Mode: ${{ github.event.inputs.mode }}"
           echo "Workflow: Completed"
-          echo "======================================" }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-        run: |
-          echo ""
-          echo "======================================"
-          echo "🏷️  Rule-Based Enrichment"
-          echo "======================================"
-          python enrich_tags_from_types.py
-      
-      - name: Run AI Enhancement
-        if: ${{ github.event.inputs.mode == 'ai-enhanced' || github.event.inputs.mode == 'both' }}
-        working-directory: ./poi_scrawler/enrichment  # ← 只在这个步骤使用
-        env:
-          DB_HOST: "127.0.0.1"
-          DB_PORT: "5432"
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-          GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
-          QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
-        run: |
-          echo ""
-          echo "======================================"
-          echo "🤖 AI-Powered Enhancement"
-          echo "======================================"
-          python enrich_tags_with_ai.py
-      
-      - name: Cleanup
-        if: always()
-        run: |
-          echo "🧹 Stopping Cloud SQL Proxy..."
-          pkill -f cloud_sql_proxy || true
-          echo "✅ Cleanup completed"
-      
-      - name: Summary
-        if: always()
-        run: |
-          echo ""
-          echo "======================================"
-          echo "📊 Enrichment Summary"
-          echo "======================================"
-          echo "Mode: ${{ github.event.inputs.mode }}"
-          echo "Workflow: Completed"
           echo "======================================"
