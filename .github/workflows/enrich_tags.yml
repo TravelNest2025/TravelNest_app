@@ -76,7 +76,7 @@ jobs:
       
       - name: Run AI Enhancement
         if: ${{ github.event.inputs.mode == 'ai-enhanced' || github.event.inputs.mode == 'both' }}
-        working-directory: ./enrichment  # ← 只在这个步骤使用
+        working-directory: ./poi_scrawler/enrichment  # ← 只在这个步骤使用
         env:
           DB_HOST: "127.0.0.1"
           DB_PORT: "5432"
