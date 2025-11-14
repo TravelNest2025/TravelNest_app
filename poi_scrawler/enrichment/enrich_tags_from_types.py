@@ -24,12 +24,13 @@ def get_pois_with_missing_tags(conn, table_name: str) -> List[Dict]:
     """获取 tags/categories 为空或不足的 POI"""
     
     with conn.cursor() as cursor:
+        # 注意：使用 google_types（复数）
         query = f"""
             SELECT 
                 id, 
                 google_place_id, 
                 name,
-                CAST(google_type AS TEXT) as google_types_json,
+                google_types,
                 price_level,
                 rating,
                 review_count,
@@ -46,26 +47,14 @@ def get_pois_with_missing_tags(conn, table_name: str) -> List[Dict]:
         
         pois = []
         for row in rows:
-            import json
-            google_types_str = row[3]
-            
-            # 解析 google_types
-            try:
-                if google_types_str:
-                    # 去除可能的 JSON 转义
-                    google_types_str = google_types_str.replace('\\"', '"')
-                    google_types = json.loads(google_types_str)
-                else:
-                    google_types = []
-            except Exception as e:
-                print(f"      ⚠️  Failed to parse google_types: {e}")
-                google_types = []
+            # google_types 是 PostgreSQL 数组类型，直接就是 Python list
+            google_types = row[3] if row[3] else []
             
             pois.append({
                 'id': row[0],
                 'google_place_id': row[1],
                 'name': row[2],
-                'google_type': google_types,
+                'google_types': google_types,
                 'price_level': row[4],
                 'rating': row[5] or 0,
                 'review_count': row[6] or 0,
@@ -79,7 +68,7 @@ def get_pois_with_missing_tags(conn, table_name: str) -> List[Dict]:
 def infer_tags_and_categories(poi: Dict, table_name: str) -> Dict:
     """基于 google_types 和其他属性推断 tags 和 categories"""
     
-    google_types = poi.get('google_type', [])
+    google_types = poi.get('google_types', [])
     price_level = poi.get('price_level')
     rating = poi.get('rating', 0)
     review_count = poi.get('review_count', 0)
@@ -182,7 +171,7 @@ def enrich_table(conn, table_name: str):
             updated_count += 1
             
             print(f"   ✅ {poi['name']}")
-            print(f"      Google Types: {poi['google_type'][:3]}{'...' if len(poi['google_type']) > 3 else ''}")
+            print(f"      Google Types: {poi['google_types'][:3]}{'...' if len(poi['google_types']) > 3 else ''}")
             print(f"      → Categories: {final_categories}")
             print(f"      → Tags: {final_tags[:3]}{'...' if len(final_tags) > 3 else ''}")
     
