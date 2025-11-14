@@ -163,8 +163,7 @@ def fetch_place_details(gmaps_client, place_id: str) -> Optional[Dict]:
             'international_phone_number', 'opening_hours',
             'price_level', 'photo', 'type', 'business_status',
             'editorial_summary',  # ← 新增：Google 的介绍
-            'reviews',            # ← 新增：用户评论
-            'types'
+            'reviews'            # ← 新增：用户评论
         ]
         
         result = gmaps_client.place(place_id=place_id, fields=fields, language='en')
@@ -214,8 +213,6 @@ def fetch_place_details(gmaps_client, place_id: str) -> Optional[Dict]:
             "business_status": place.get('business_status', 'OPERATIONAL'),
             "editorial_summary": place.get('editorial_summary', {}).get('overview'),
             "review_summaries": review_summaries,
-            "price_level": place.get('price_level'),  # 0-4（免费到很贵）
-            "types": place.get('types', [])  # 完整类型列表
         }
     
     except Exception as e:
