@@ -16,9 +16,6 @@ on:
 jobs:
   enrich-tags:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ./enrichment
     
     steps:
       - name: Checkout code
@@ -47,10 +44,23 @@ jobs:
         run: |
           ./cloud_sql_proxy ${{ secrets.DB_INSTANCE_CONNECTION_NAME }} &
           sleep 5
-          echo "Cloud SQL Proxy started"
+          echo "✅ Cloud SQL Proxy started"
+      
+      - name: Verify enrichment directory
+        run: |
+          echo "📁 Checking enrichment directory..."
+          ls -la
+          if [ -d "enrichment" ]; then
+            echo "✅ enrichment directory exists"
+            ls -la enrichment/
+          else
+            echo "❌ enrichment directory not found!"
+            exit 1
+          fi
       
       - name: Run Rule-Based Enrichment
         if: ${{ github.event.inputs.mode == 'rule-based' || github.event.inputs.mode == 'both' }}
+        working-directory: ./enrichment  # ← 只在这个步骤使用
         env:
           DB_HOST: "127.0.0.1"
           DB_PORT: "5432"
@@ -58,13 +68,15 @@ jobs:
           DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
           DB_NAME: ${{ secrets.DB_NAME }}
         run: |
-          echo "🏷️  Starting Rule-Based Enrichment..."
-          cd enrichment
+          echo ""
+          echo "======================================"
+          echo "🏷️  Rule-Based Enrichment"
+          echo "======================================"
           python enrich_tags_from_types.py
-          echo "✅ Rule-Based Enrichment completed"
       
       - name: Run AI Enhancement
         if: ${{ github.event.inputs.mode == 'ai-enhanced' || github.event.inputs.mode == 'both' }}
+        working-directory: ./enrichment  # ← 只在这个步骤使用
         env:
           DB_HOST: "127.0.0.1"
           DB_PORT: "5432"
@@ -74,10 +86,11 @@ jobs:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
         run: |
-          echo "🤖 Starting AI-Powered Enhancement..."
-          cd enrichment
+          echo ""
+          echo "======================================"
+          echo "🤖 AI-Powered Enhancement"
+          echo "======================================"
           python enrich_tags_with_ai.py
-          echo "✅ AI Enhancement completed"
       
       - name: Cleanup
         if: always()
@@ -94,5 +107,5 @@ jobs:
           echo "📊 Enrichment Summary"
           echo "======================================"
           echo "Mode: ${{ github.event.inputs.mode }}"
-          echo "Status: Completed"
+          echo "Workflow: Completed"
           echo "======================================"
