@@ -1,15 +1,5 @@
 on:
   workflow_dispatch:
-    inputs:
-      mode:
-        description: 'Enrichment mode'
-        required: true
-        type: choice
-        default: 'rule-based'
-        options:
-          - rule-based
-          - ai-enhanced
-          - both
 
 jobs:
   enrich-tags:
@@ -20,10 +10,6 @@ jobs:
       id-token: 'write'
     
     steps:
-      # ========================================
-      # 1. 环境准备
-      # ========================================
-      
       - name: Checkout repository
         uses: actions/checkout@v4
       
@@ -37,19 +23,10 @@ jobs:
           python -m pip install --upgrade pip
           pip install psycopg2-binary googlemaps openai
       
-      # ========================================
-      # 2. Google Cloud 认证
-      # ========================================
-      
       - name: Authenticate to Google Cloud
-        id: auth
         uses: 'google-github-actions/auth@v2'
         with:
           credentials_json: '${{ secrets.GCP_SA_KEY }}'
-      
-      # ========================================
-      # 3. 启动 Cloud SQL Auth Proxy
-      # ========================================
       
       - name: Download Cloud SQL Auth Proxy
         run: |
@@ -62,74 +39,17 @@ jobs:
           PROXY_PID=$!
           echo "PROXY_PID=$PROXY_PID" >> $GITHUB_ENV
           
-          # 等待代理就绪
-          echo "⏳ Waiting for Cloud SQL Proxy to be ready..."
+          echo "⏳ Waiting for Cloud SQL Proxy..."
           for i in {1..30}; do
             if nc -z 127.0.0.1 5432 2>/dev/null; then
-              echo "✅ Cloud SQL Proxy is ready (attempt $i)"
+              echo "✅ Proxy ready!"
               break
             fi
-            if [ $i -eq 30 ]; then
-              echo "❌ Cloud SQL Proxy failed to start after 30 attempts"
-              kill $PROXY_PID 2>/dev/null || true
-              exit 1
-            fi
-            echo "   Attempt $i/30: waiting..."
+            [ $i -eq 30 ] && echo "❌ Timeout!" && exit 1
             sleep 2
           done
       
-      # ========================================
-      # 4. 验证目录结构
-      # ========================================
-      
-      - name: Verify directory structure
-        run: |
-          echo "📁 Current directory: $(pwd)"
-          echo ""
-          echo "📁 Repository root contents:"
-          ls -la
-          echo ""
-          echo "📁 poi_scrawler contents:"
-          ls -la poi_scrawler/
-          echo ""
-          echo "📁 enrichment contents:"
-          ls -la poi_scrawler/enrichment/
-      
-      # ========================================
-      # 5. 运行规则映射增强
-      # ========================================
-      
-      - name: Run Rule-Based Enrichment
-        if: ${{ github.event.inputs.mode == 'rule-based' || github.event.inputs.mode == 'both' }}
-        working-directory: ./poi_scrawler/enrichment
-        env:
-          DB_HOST: "127.0.0.1"
-          DB_PORT: "5432"
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
-          DB_NAME: ${{ secrets.DB_NAME }}
-        run: |
-          echo ""
-          echo "======================================"
-          echo "🏷️  Rule-Based Enrichment"
-          echo "======================================"
-          
-          # 调试：打印连接信息（不打印密码）
-          echo "🔍 Connection details:"
-          echo "   Host: $DB_HOST"
-          echo "   Port: $DB_PORT"
-          echo "   Database: $DB_NAME"
-          echo "   User: $DB_USER"
-          echo ""
-          
-          python enrich_tags_from_types.py
-      
-      # ========================================
-      # 6. 运行 AI 增强
-      # ========================================
-      
-      - name: Run AI Enhancement
-        if: ${{ github.event.inputs.mode == 'ai-enhanced' || github.event.inputs.mode == 'both' }}
+      - name: Run Tag Enrichment
         working-directory: ./poi_scrawler/enrichment
         env:
           DB_HOST: "127.0.0.1"
@@ -140,42 +60,20 @@ jobs:
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
         run: |
-          echo ""
-          echo "======================================"
-          echo "🤖 AI-Powered Enhancement"
-          echo "======================================"
-          python enrich_tags_with_ai.py
-      
-      # ========================================
-      # 7. 清理
-      # ========================================
+          echo "🏷️  Starting enrichment..."
+          python enrich_missing_tags.py
       
       - name: Cleanup
         if: always()
         run: |
-          # 停止 Cloud SQL Proxy
-          if [ ! -z "$PROXY_PID" ]; then
-            kill $PROXY_PID 2>/dev/null || true
-            echo "🔌 Cloud SQL Proxy stopped"
-          fi
-          
-          # 删除代理文件
+          [ ! -z "$PROXY_PID" ] && kill $PROXY_PID 2>/dev/null || true
           rm -f cloud-sql-proxy
-          
-          echo "🧹 Cleanup completed"
-      
-      # ========================================
-      # 8. 报告结果
-      # ========================================
+          echo "✅ Cleanup completed"
       
       - name: Summary
         if: always()
         run: |
           echo ""
           echo "======================================"
-          echo "📊 Enrichment Summary"
-          echo "======================================"
-          echo "Mode: ${{ github.event.inputs.mode }}"
-          echo "Workflow: Completed"
-          echo "Run number: ${{ github.run_number }}"
+          echo "📊 Enrichment Complete"
           echo "======================================"
