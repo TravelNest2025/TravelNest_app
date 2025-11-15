@@ -61,7 +61,7 @@ jobs:
           QWEN_API_KEY: ${{ secrets.QWEN_API_KEY }}
         run: |
           echo "🏷️  Starting enrichment..."
-          python enrich_missing_tags.py
+          python enrich_tags_with_ai.py
       
       - name: Cleanup
         if: always()
