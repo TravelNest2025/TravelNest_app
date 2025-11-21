@@ -1,0 +1,16 @@
+# Google Maps API
+googlemaps==4.10.0
+
+# Database
+psycopg2-binary==2.9.9
+
+
+# HTTP requests
+requests==2.31.0
+
+# Environment variables
+python-dotenv==1.0.0
+
+
+# Google Cloud
+google-cloud-sql-python-connector==1.4.3
