@@ -19,9 +19,13 @@ class Database:
             'dbname': Config.DB_NAME,
             'user': Config.DB_USER,
             'password': Config.DB_PASSWORD,
-            'connect_timeout': 10
+            'connect_timeout': 10,
+            # ⭐ 新增：连接选项，设置 search_path
+            'options': f'-c search_path={Config.DB_SCHEMA},public'
         }
+        
         print(f"Database initialized: {Config.DB_NAME}@{Config.DB_HOST}:{Config.DB_PORT}")
+        print(f"Schema: {Config.DB_SCHEMA}")
     
     @contextmanager
     def get_connection(self):
@@ -29,6 +33,11 @@ class Database:
         conn = None
         try:
             conn = psycopg2.connect(**self.conn_params)
+            
+            # ⭐ 可选：在连接后再次确认 search_path
+            with conn.cursor() as cur:
+                cur.execute(f"SET search_path TO {Config.DB_SCHEMA}, public")
+            
             yield conn
             conn.commit()
         except Exception as e:
@@ -45,8 +54,14 @@ class Database:
         try:
             with self.get_connection() as conn:
                 with conn.cursor() as cur:
+                    # ⭐ 测试 schema 是否正确
+                    cur.execute("SELECT current_schema()")
+                    current_schema = cur.fetchone()[0]
+                    
                     cur.execute("SELECT 1")
-                    print("✅ Database connection successful")
+                    
+                    print(f"✅ Database connection successful")
+                    print(f"   Current schema: {current_schema}")
                     return True
         except Exception as e:
             print(f"❌ Database connection failed: {e}")
@@ -56,6 +71,7 @@ class Database:
         """获取城市配置"""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # ⭐ 不需要指定 schema，自动使用 search_path
                 cur.execute("""
                     SELECT 
                         city_id,
@@ -81,6 +97,7 @@ class Database:
         """获取 Google types 到 categories 的映射"""
         with self.get_connection() as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                # ⭐ 不需要指定 schema
                 cur.execute("""
                     SELECT 
                         google_type,
@@ -132,6 +149,7 @@ class Database:
                     update_cols = [col for col in columns if col not in ['id', 'google_place_id', 'created_at']]
                     update_str = ', '.join([f"{col} = EXCLUDED.{col}" for col in update_cols])
                     
+                    # ⭐ 不需要指定 schema，自动使用 search_path
                     query = f"""
                         INSERT INTO {table_name} ({columns_str})
                         VALUES %s
@@ -144,7 +162,7 @@ class Database:
                     new_count = len(pois)
                     updated_count = 0
                     
-                    print(f"   ✅ Inserted {new_count} POIs into {table_name}")
+                    print(f"   ✅ Inserted {new_count} POIs into {Config.DB_SCHEMA}.{table_name}")
                     return new_count, updated_count
         
         except Exception as e:

@@ -25,6 +25,8 @@ class Config:
     MAX_RESULTS_PER_REQUEST: int = 20
     REQUEST_DELAY: float = 0.3
     BATCH_SIZE: int = 10
+
+    DB_SCHEMA: str = os.getenv('DB_SCHEMA', 'poi_data')
     
     @classmethod
     def get_database_url(cls) -> str:
@@ -51,3 +53,4 @@ class Config:
         print("✅ Configuration validated")
         print(f"   - Database: {cls.DB_NAME}@{cls.DB_HOST}:{cls.DB_PORT}")
         print(f"   - API Key: {cls.GOOGLE_MAPS_API_KEY[:20]}...")
+        print(f"   - Schema: {cls.DB_SCHEMA}")
