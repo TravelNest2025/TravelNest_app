@@ -75,7 +75,6 @@ jobs:
       
       - name: 上传爬取结果到Artifacts
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: poi-cache-${{ github.event.inputs.city || 'paris' }}
           path: ${{ env.WORKING_DIR }}/cache/${{ github.event.inputs.city || 'paris' }}.json
@@ -89,7 +88,6 @@ jobs:
     name: 写入 ${{ github.event.inputs.city || 'paris' }}
     runs-on: ubuntu-latest
     needs: crawl
-    if: always()
     
     defaults:
       run:
