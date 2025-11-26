@@ -52,31 +52,41 @@ class RetryWriter:
             
     def clean_data_for_db(self, poi_data: Dict) -> Dict:
         """
-        清洗数据：移除数据库中不存在的字段
+        清洗数据：移除数据库中不存在的字段，并进行字段映射
         """
         # 复制一份数据，避免修改原字典
         data = poi_data.copy()
         
-        # 🚫 移除列表：这些字段在JSON里有，但数据库表里可能没有
-        # 如果你的数据库用的是 location (GIS)，那么 latitude/longitude 就是多余的
+        # -------------------------------------------------
+        # 1. 字段映射 (Mapping)
+        # -------------------------------------------------
+        # 数据库里的列叫 images_data，但 JSON 里叫 photo_references
+        if 'photo_references' in data:
+            data['images_data'] = data['photo_references']
+
+        # -------------------------------------------------
+        # 2. 移除多余字段 (Cleaning)
+        # -------------------------------------------------
         keys_to_remove = [
             'latitude', 
             'longitude', 
-            'created_at',   # 让数据库自动生成
-            'last_updated', # 让数据库自动生成
-            'photos'        # 原始API返回的字段，我们存的是 photo_references
+            'created_at',   
+            'last_updated', 
+            'photos',           # 原始 API 数据
+            'photo_references'  # ❌ 必须移除！因为已经转存到 images_data 了
         ]
         
         for key in keys_to_remove:
             if key in data:
                 data.pop(key)
                 
-        # ✅ 确保 location 字段存在
-        # 如果 JSON 里没有 location 但有 lat/lng，这里可以补救（可选）
+        # -------------------------------------------------
+        # 3. 构建 GIS Location
+        # -------------------------------------------------
         if 'location' not in data and 'latitude' in poi_data and 'longitude' in poi_data:
              lat = poi_data['latitude']
              lng = poi_data['longitude']
-             if lat and lng:
+             if lat is not None and lng is not None:
                  data['location'] = f"POINT({lng} {lat})"
         
         return data
