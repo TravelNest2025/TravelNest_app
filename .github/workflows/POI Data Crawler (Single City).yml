@@ -1,9 +1,6 @@
 name: POI Data Crawler (Single City)
 
 on:
-  # 定时触发（每周日凌晨2点，爬取paris）
-  schedule:
-    - cron: '0 2 * * 0'
   
   # 手动触发
   workflow_dispatch:
@@ -56,7 +53,7 @@ jobs:
       
       - name: 爬取城市
         env:
-          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
           CITY: ${{ github.event.inputs.city || 'paris' }}
