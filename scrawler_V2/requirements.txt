@@ -1,12 +1,14 @@
-# Google Maps API
+# Google Places API
 googlemaps==4.10.0
 
-# Database
+# Supabase 数据库客户端
+supabase==2.3.4
+
+# 如果你使用 PostgreSQL 直接连接（可选）
 psycopg2-binary==2.9.9
 
-
-# HTTP requests
+# 数据处理
 requests==2.31.0
 
-# Environment variables
+# 其他可能需要的包
 python-dotenv==1.0.0
