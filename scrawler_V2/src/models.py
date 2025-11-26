@@ -21,8 +21,11 @@ class POIBase:
     name_cn: Optional[str] = None
     
     # 地理位置
-    latitude: float = None
-    longitude: float = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    # ✅ 移到父类：存储 PostGIS WKT 格式字符串 "POINT(lng lat)"
+    location: Optional[str] = None 
+    
     address: Optional[str] = None
     website: Optional[str] = None
     
@@ -63,12 +66,19 @@ class POIBase:
     
     def to_db_dict(self) -> dict:
         """转换为数据库格式"""
+        # ✅ 逻辑优化：优先使用已存在的 location 字符串
+        # 如果 location 为空，但有经纬度，则自动生成
+        db_location = self.location
+        if not db_location and self.longitude is not None and self.latitude is not None:
+            # PostGIS 默认接受这种格式
+            db_location = f'POINT({self.longitude} {self.latitude})'
+
         return {
             'city_id': self.city_id,
             'google_place_id': self.google_place_id,
             'name': self.name,
             'name_cn': self.name_cn,
-            'location': f'SRID=4326;POINT({self.longitude} {self.latitude})' if self.longitude and self.latitude else None,
+            'location': db_location, # ✅ 使用处理后的 location
             'address': self.address,
             'website': self.website,
             'rating': self.rating,
@@ -92,6 +102,7 @@ class Restaurant(POIBase):
     is_michelin: bool = False
     michelin_stars: Optional[int] = None
     currency: str = 'EUR'
+    # ❌ 删除：location 已在父类定义
     
     def to_db_dict(self) -> dict:
         """转换为数据库格式"""
@@ -115,6 +126,7 @@ class Attraction(POIBase):
     description: Optional[str] = None
     visit_duration: Optional[int] = None  # 分钟
     best_time_to_visit: Optional[str] = None
+    # ❌ 删除：location 已在父类定义
     
     def to_db_dict(self) -> dict:
         """转换为数据库格式"""
@@ -143,6 +155,7 @@ class Hotel(POIBase):
     star_rating: Optional[int] = None
     hotel_tier: Optional[str] = None
     is_hostel: bool = False
+    # ❌ 删除：location 已在父类定义
     
     def to_db_dict(self) -> dict:
         """转换为数据库格式"""
@@ -207,31 +220,32 @@ class CrawlResult:
         result = cls(city_id=data['city_id'])
         result.total_pois = data['total_pois']
         result.api_calls = data['api_calls']
-        result.errors = data['errors']
+        result.errors = data.get('errors', [])
         
         if data.get('crawl_time'):
             result.crawl_time = datetime.fromisoformat(data['crawl_time'])
         
         # 重建POI对象
-        for r_data in data['restaurants']:
-            result.restaurants.append(Restaurant(**{
-                k: v for k, v in r_data.items() 
-                if k not in ['created_at', 'last_updated']
-            }))
+        # 使用 **kwargs 解包，自动匹配字段
+        for r_data in data.get('restaurants', []):
+            # 过滤掉不在 __init__ 中的字段 (如 created_at 如果不在init里)
+            # 但我们的 dataclass 定义包含了所有字段，所以直接解包通常是安全的
+            # 为了保险，可以过滤掉 None 值或者特定字段
+            clean_data = {k: v for k, v in r_data.items() if k != 'created_at' and k != 'last_updated'}
+            result.restaurants.append(Restaurant(**clean_data))
         
-        for a_data in data['attractions']:
-            result.attractions.append(Attraction(**{
-                k: v for k, v in a_data.items() 
-                if k not in ['created_at', 'last_updated']
-            }))
+        for a_data in data.get('attractions', []):
+            clean_data = {k: v for k, v in a_data.items() if k != 'created_at' and k != 'last_updated'}
+            result.attractions.append(Attraction(**clean_data))
         
-        for h_data in data['hotels']:
-            result.hotels.append(Hotel(**{
-                k: v for k, v in h_data.items() 
-                if k not in ['created_at', 'last_updated']
-            }))
+        for h_data in data.get('hotels', []):
+            clean_data = {k: v for k, v in h_data.items() if k != 'created_at' and k != 'last_updated'}
+            result.hotels.append(Hotel(**clean_data))
         
         return result
+
+
+# ... (WriteResult 和 format_photo_reference 保持不变) ...
 
 
 @dataclass
