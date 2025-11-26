@@ -1,5 +1,5 @@
 """
-POI数据爬取模块
+POI数据爬取模块 - 支持分页获取更多结果
 
 使用Google Places API (New) 采集POI数据
 """
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 class GooglePlacesCrawler:
-    """Google Places API爬虫"""
+    """Google Places API爬虫 - 支持分页"""
     
     def __init__(
         self,
@@ -43,7 +43,7 @@ class GooglePlacesCrawler:
         # Google Places API (New) 基础URL
         self.base_url = 'https://places.googleapis.com/v1/places'
     
-    def search_nearby(
+    def search_nearby_with_pagination(
         self,
         latitude: float,
         longitude: float,
@@ -52,17 +52,87 @@ class GooglePlacesCrawler:
         max_results: int = 60,
     ) -> List[Dict]:
         """
-        使用Nearby Search搜索附近的POI
+        使用Nearby Search搜索附近的POI，支持分页获取更多结果
         
         Args:
             latitude: 纬度
             longitude: 经度
             included_types: 包含的类型列表
             radius: 搜索半径（米）
-            max_results: 最大结果数
+            max_results: 期望的最大结果数
             
         Returns:
             POI列表
+        """
+        all_places = []
+        page_num = 1
+        
+        # Google Places API (New) 每次最多返回20个结果
+        # 需要多次调用来获取更多结果
+        while len(all_places) < max_results:
+            logger.info(f"📄 正在获取第 {page_num} 页结果...")
+            
+            # 计算本次需要获取的数量
+            remaining = max_results - len(all_places)
+            batch_size = min(remaining, 20)  # API限制单次最多20个
+            
+            # 调用单次搜索
+            places, has_more = self._search_nearby_single(
+                latitude=latitude,
+                longitude=longitude,
+                included_types=included_types,
+                radius=radius,
+                max_result_count=batch_size,
+            )
+            
+            if not places:
+                logger.info("📄 没有更多结果")
+                break
+            
+            all_places.extend(places)
+            logger.info(f"✅ 第 {page_num} 页返回 {len(places)} 个结果，累计: {len(all_places)}")
+            
+            # 如果API表示没有更多结果，停止
+            if not has_more:
+                logger.info("📄 API表示没有更多结果")
+                break
+            
+            # 如果已达到目标数量，停止
+            if len(all_places) >= max_results:
+                break
+            
+            # 分页之间的延迟（Google建议2-3秒）
+            if len(all_places) < max_results:
+                logger.info("⏳ 等待2秒后继续获取下一页...")
+                time.sleep(2)
+                page_num += 1
+        
+        # 截断到精确的max_results
+        result = all_places[:max_results]
+        logger.info(f"🎯 分页搜索完成，共获取 {len(result)} 个结果")
+        
+        return result
+    
+    def _search_nearby_single(
+        self,
+        latitude: float,
+        longitude: float,
+        included_types: List[str],
+        radius: int,
+        max_result_count: int = 20,
+    ) -> tuple[List[Dict], bool]:
+        """
+        单次Nearby Search调用
+        
+        Args:
+            latitude: 纬度
+            longitude: 经度
+            included_types: 包含的类型列表
+            radius: 搜索半径（米）
+            max_result_count: 本次期望的结果数（最多20）
+            
+        Returns:
+            (places列表, 是否还有更多结果)
         """
         url = f'{self.base_url}:searchNearby'
         
@@ -79,13 +149,14 @@ class GooglePlacesCrawler:
                 'places.priceLevel,'
                 'places.types,'
                 'places.websiteUri,'
+                'places.nationalPhoneNumber,'
                 'places.photos'
             )
         }
         
         payload = {
             'includedTypes': included_types,
-            'maxResultCount': min(max_results, 20),  # API限制单次最多20个
+            'maxResultCount': max_result_count,
             'locationRestriction': {
                 'circle': {
                     'center': {
@@ -97,6 +168,8 @@ class GooglePlacesCrawler:
             },
             'languageCode': self.google_config.language,
             'regionCode': self.google_config.region,
+            # 添加排序方式以确保一致性
+            'rankPreference': 'DISTANCE',  # 或 'RELEVANCE'
         }
         
         try:
@@ -107,15 +180,48 @@ class GooglePlacesCrawler:
             data = response.json()
             places = data.get('places', [])
             
-            logger.info(f"✅ Nearby Search返回 {len(places)} 个结果")
+            # Google Places API (New) 使用不同的机制判断是否有更多结果
+            # 如果返回的结果数 < 请求的数量，说明没有更多结果
+            has_more = len(places) >= max_result_count
             
-            return places
+            logger.debug(f"API返回 {len(places)} 个结果 (请求了 {max_result_count})")
+            
+            return places, has_more
         
         except requests.exceptions.RequestException as e:
             logger.error(f"❌ Nearby Search失败: {e}")
-            if hasattr(e.response, 'text'):
+            if hasattr(e, 'response') and e.response is not None:
                 logger.error(f"响应内容: {e.response.text}")
-            return []
+            return [], False
+    
+    def search_nearby(
+        self,
+        latitude: float,
+        longitude: float,
+        included_types: List[str],
+        radius: int = 25000,
+        max_results: int = 60,
+    ) -> List[Dict]:
+        """
+        向后兼容的search_nearby方法，内部调用分页版本
+        
+        Args:
+            latitude: 纬度
+            longitude: 经度
+            included_types: 包含的类型列表
+            radius: 搜索半径（米）
+            max_results: 最大结果数
+            
+        Returns:
+            POI列表
+        """
+        return self.search_nearby_with_pagination(
+            latitude=latitude,
+            longitude=longitude,
+            included_types=included_types,
+            radius=radius,
+            max_results=max_results,
+        )
     
     def get_place_details(self, place_id: str) -> Optional[Dict]:
         """
@@ -141,6 +247,7 @@ class GooglePlacesCrawler:
                 'priceLevel,'
                 'types,'
                 'websiteUri,'
+                'nationalPhoneNumber,'
                 'photos,'
                 'editorialSummary'  # 描述
             )
@@ -184,6 +291,7 @@ class GooglePlacesCrawler:
             price_level = self._parse_price_level(price_level_str)
             
             website = place_data.get('websiteUri', '')
+            phone = place_data.get('nationalPhoneNumber', '')
             types = place_data.get('types', [])
             
             # 照片处理（仅存储photo_reference）
@@ -209,11 +317,9 @@ class GooglePlacesCrawler:
                 logger.debug(f"辅助标签建议: {auxiliary_tags}")
             else:
                 # 无Supabase客户端，categories为空
-                logger.error("❌ 未提供Supabase客户端，无法查询类型映射")
                 categories = []
             
             # 根据POI类型创建相应对象
-            # Phase 1不做特殊判断，所有特殊字段留给Phase 2 AI处理
             if poi_type == 'restaurant':
                 return Restaurant(
                     city_id=city_config.city_id,
@@ -293,38 +399,6 @@ class GooglePlacesCrawler:
         }
         return price_map.get(price_level_str)
     
-    def _estimate_star_rating(self, place_data: Dict, types: List[str]) -> Optional[int]:
-        """估算酒店星级（Google不直接提供）"""
-        # 基于类型和评分估算
-        rating = place_data.get('rating', 0)
-        
-        # 如果types中包含具体星级信息（某些地区Google会提供）
-        for t in types:
-            if '5_star' in t or 'luxury' in t:
-                return 5
-            elif '4_star' in t or 'upscale' in t:
-                return 4
-            elif '3_star' in t:
-                return 3
-            elif '2_star' in t or 'budget' in t:
-                return 2
-            elif '1_star' in t:
-                return 1
-        
-        # 基于评分估算（粗略）
-        if rating >= 4.5:
-            return 5
-        elif rating >= 4.0:
-            return 4
-        elif rating >= 3.5:
-            return 3
-        elif rating >= 3.0:
-            return 2
-        elif rating > 0:
-            return 1
-        
-        return None
-    
     def crawl_city(self, city_id: str) -> CrawlResult:
         """
         爬取一个城市的所有POI
@@ -388,7 +462,7 @@ class GooglePlacesCrawler:
         expected_type: str
     ) -> List[Restaurant | Attraction | Hotel]:
         """
-        爬取特定类型的POI
+        爬取特定类型的POI（支持分页）
         
         Args:
             city_config: 城市配置
@@ -401,8 +475,8 @@ class GooglePlacesCrawler:
         pois = []
         seen_place_ids = set()
         
-        # 调用Nearby Search
-        places = self.search_nearby(
+        # 调用支持分页的Nearby Search
+        places = self.search_nearby_with_pagination(
             latitude=city_config.latitude,
             longitude=city_config.longitude,
             included_types=included_types,
@@ -410,10 +484,13 @@ class GooglePlacesCrawler:
             max_results=self.crawler_config.max_pois_per_type or 60,
         )
         
+        logger.info(f"🔄 开始解析 {len(places)} 个原始结果...")
+        
         # 解析每个place
-        for place_data in places:
+        for i, place_data in enumerate(places, 1):
             # 请求延迟（避免触发限流）
-            time.sleep(self.crawler_config.request_delay)
+            if i > 1:  # 第一个不需要延迟
+                time.sleep(self.crawler_config.request_delay)
             
             poi = self.parse_place(place_data, city_config)
             
@@ -423,10 +500,16 @@ class GooglePlacesCrawler:
                 if poi_type == expected_type:
                     pois.append(poi)
                     seen_place_ids.add(poi.google_place_id)
+                    logger.debug(f"✅ [{i}/{len(places)}] 添加POI: {poi.name}")
+                else:
+                    logger.debug(f"⏭️  [{i}/{len(places)}] 跳过POI (类型不匹配): {poi.name} ({poi_type} != {expected_type})")
             
             # 检查是否达到限制
             if self.crawler_config.max_pois_per_type and len(pois) >= self.crawler_config.max_pois_per_type:
+                logger.info(f"🎯 已达到数量限制: {len(pois)}")
                 break
+        
+        logger.info(f"✅ 解析完成，有效POI: {len(pois)} 个")
         
         return pois
 
@@ -443,7 +526,7 @@ if __name__ == '__main__':
     
     # 解析命令行参数
     city_id = sys.argv[1] if len(sys.argv) > 1 else 'paris'
-    output_file = sys.argv[2] if len(sys.argv) > 2 else f'./cache/{city_id}_crawl_result.json'
+    output_file = sys.argv[2] if len(sys.argv) > 2 else f'./cache/{city_id}.json'
     
     # 初始化配置
     google_config = get_google_config()
@@ -467,7 +550,7 @@ if __name__ == '__main__':
         
         # 保存结果
         import os
-        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        os.makedirs(os.path.dirname(output_file) or '.', exist_ok=True)
         result.save_to_file(output_file)
         
         logger.info(f"✅ 结果已保存到: {output_file}")
@@ -482,5 +565,5 @@ if __name__ == '__main__':
         print(f"API调用: {result.api_calls}")
         
     except Exception as e:
-        logger.error(f"❌ 爬取失败: {e}")
+        logger.error(f"❌ 爬取失败: {e}", exc_info=True)
         sys.exit(1)
