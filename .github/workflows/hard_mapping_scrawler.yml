@@ -1,15 +1,15 @@
-name: POI Data Crawler
+name: POI Data Crawler (Single City)
 
 on:
-  # 定时触发（每周日凌晨2点）
+  # 定时触发（每周日凌晨2点，爬取paris）
   schedule:
     - cron: '0 2 * * 0'
   
   # 手动触发
   workflow_dispatch:
     inputs:
-      cities:
-        description: '城市列表（逗号分隔，如: paris,london,tokyo）'
+      city:
+        description: '城市名称（如: paris, london, tokyo）'
         required: false
         default: 'paris'
       skip_crawl:
@@ -23,26 +23,17 @@ env:
 
 jobs:
   # ============================================
-  # Job 1: 爬取数据（即使写入失败也会保存）
+  # Job 1: 爬取数据
   # ============================================
   crawl:
-    name: 爬取 ${{ matrix.city }}
+    name: 爬取 ${{ github.event.inputs.city || 'paris' }}
     runs-on: ubuntu-latest
     
-    # ✅ defaults在job内部
     defaults:
       run:
         working-directory: scrawler_V2
     
-    # 只在不跳过爬取时运行
     if: github.event.inputs.skip_crawl != 'true'
-    
-    strategy:
-      matrix:
-        # ✅ 使用replace正确解析逗号分隔的城市列表
-        city: ${{ fromJson(format('["{0}"]', replace(github.event.inputs.cities || 'paris,london,tokyo', ',', '","'))) }}
-      fail-fast: false  # 一个城市失败不影响其他城市
-      max-parallel: 3   # 最多并行3个城市
     
     steps:
       - name: Checkout代码
@@ -63,24 +54,23 @@ jobs:
       - name: 创建缓存目录
         run: mkdir -p cache
       
-      - name: 爬取 ${{ matrix.city }}
+      - name: 爬取城市
         env:
           GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          CITY: ${{ github.event.inputs.city || 'paris' }}
         run: |
-          echo "🚀 开始爬取: ${{ matrix.city }}"
-          python src/crawler.py ${{ matrix.city }} cache/${{ matrix.city }}.json
+          echo "🚀 开始爬取: $CITY"
+          python src/crawler.py $CITY cache/${CITY}.json
           
-          # 验证爬取结果
-          if [ -f "cache/${{ matrix.city }}.json" ]; then
-            echo "✅ 爬取成功: cache/${{ matrix.city }}.json"
+          if [ -f "cache/${CITY}.json" ]; then
+            echo "✅ 爬取成功: cache/${CITY}.json"
             
-            # ✅ 使用jq显示统计信息（修正了YAML语法错误）
             echo "📊 数据统计:"
-            echo "  餐厅: $(jq '.restaurants | length' cache/${{ matrix.city }}.json)"
-            echo "  景点: $(jq '.attractions | length' cache/${{ matrix.city }}.json)"
-            echo "  酒店: $(jq '.hotels | length' cache/${{ matrix.city }}.json)"
+            echo "  餐厅: $(jq '.restaurants | length' cache/${CITY}.json)"
+            echo "  景点: $(jq '.attractions | length' cache/${CITY}.json)"
+            echo "  酒店: $(jq '.hotels | length' cache/${CITY}.json)"
           else
             echo "❌ 爬取失败: 未生成JSON文件"
             exit 1
@@ -88,33 +78,25 @@ jobs:
       
       - name: 上传爬取结果到Artifacts
         uses: actions/upload-artifact@v4
-        if: always()  # 无论成功失败都上传
+        if: always()
         with:
-          name: poi-cache-${{ matrix.city }}
-          path: ${{ env.WORKING_DIR }}/cache/${{ matrix.city }}.json
-          retention-days: 30  # 保留30天
+          name: poi-cache-${{ github.event.inputs.city || 'paris' }}
+          path: ${{ env.WORKING_DIR }}/cache/${{ github.event.inputs.city || 'paris' }}.json
+          retention-days: 30
           if-no-files-found: error
   
   # ============================================
-  # Job 2: 写入数据库（依赖爬取Job）
+  # Job 2: 写入数据库
   # ============================================
   write:
-    name: 写入 ${{ matrix.city }}
+    name: 写入 ${{ github.event.inputs.city || 'paris' }}
     runs-on: ubuntu-latest
-    needs: crawl  # 依赖爬取Job
-    if: always()  # 即使爬取部分失败也运行
+    needs: crawl
+    if: always()
     
-    # ✅ defaults在job内部
     defaults:
       run:
         working-directory: scrawler_V2
-    
-    strategy:
-      matrix:
-        # ✅ 使用replace正确解析逗号分隔的城市列表
-        city: ${{ fromJson(format('["{0}"]', replace(github.event.inputs.cities || 'paris,london,tokyo', ',', '","'))) }}
-      fail-fast: false
-      max-parallel: 3
     
     steps:
       - name: Checkout代码
@@ -138,107 +120,30 @@ jobs:
       - name: 下载爬取结果
         uses: actions/download-artifact@v4
         with:
-          name: poi-cache-${{ matrix.city }}
+          name: poi-cache-${{ github.event.inputs.city || 'paris' }}
           path: ${{ env.WORKING_DIR }}/cache/
       
-      - name: 验证下载的文件
-        run: |
-          if [ -f "cache/${{ matrix.city }}.json" ]; then
-            echo "✅ 成功下载: cache/${{ matrix.city }}.json"
-            ls -lh cache/${{ matrix.city }}.json
-          else
-            echo "❌ 下载失败: 未找到文件"
-            exit 1
-          fi
-      
-      - name: 写入数据库 (带重试)
+      - name: 写入数据库
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+          CITY: ${{ github.event.inputs.city || 'paris' }}
         run: |
-          echo "💾 开始写入: ${{ matrix.city }}"
+          echo "💾 开始写入: $CITY"
+          python src/retry_writer.py --cache-file cache/${CITY}.json
           
-          # 使用retry_writer.py（带重试机制）
-          python src/retry_writer.py --cache-file cache/${{ matrix.city }}.json
-          
-          WRITE_EXIT_CODE=$?
-          
-          if [ $WRITE_EXIT_CODE -eq 0 ]; then
-            echo "✅ 写入成功: ${{ matrix.city }}"
+          if [ $? -eq 0 ]; then
+            echo "✅ 写入成功: $CITY"
           else
-            echo "❌ 写入失败: ${{ matrix.city }} (退出码: $WRITE_EXIT_CODE)"
+            echo "❌ 写入失败: $CITY"
             exit 1
-          fi
-      
-      - name: 保存失败记录 (如果写入失败)
-        if: failure()
-        run: |
-          # 检查是否有失败记录
-          if [ -f "cache/failed_writes.json" ]; then
-            echo "📋 发现失败记录"
-            cat cache/failed_writes.json
           fi
       
       - name: 上传失败记录
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: failed-writes-${{ matrix.city }}
+          name: failed-writes-${{ github.event.inputs.city || 'paris' }}
           path: ${{ env.WORKING_DIR }}/cache/failed_writes.json
           retention-days: 30
           if-no-files-found: ignore
-  
-  # ============================================
-  # Job 3: 汇总报告
-  # ============================================
-  summary:
-    name: 生成汇总报告
-    runs-on: ubuntu-latest
-    needs: [crawl, write]
-    if: always()
-    
-    steps:
-      - name: 生成汇总报告
-        run: |
-          echo "# 📊 POI爬取任务汇总" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**执行时间**: $(date -u +"%Y-%m-%d %H:%M:%S UTC")" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          echo "## 任务状态" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # 爬取状态
-          if [ "${{ needs.crawl.result }}" == "success" ]; then
-            echo "✅ **爬取任务**: 成功" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.crawl.result }}" == "failure" ]; then
-            echo "❌ **爬取任务**: 失败" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⏭️ **爬取任务**: 跳过" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          # 写入状态
-          if [ "${{ needs.write.result }}" == "success" ]; then
-            echo "✅ **写入任务**: 成功" >> $GITHUB_STEP_SUMMARY
-          elif [ "${{ needs.write.result }}" == "failure" ]; then
-            echo "❌ **写入任务**: 失败" >> $GITHUB_STEP_SUMMARY
-          else
-            echo "⏭️ **写入任务**: 跳过" >> $GITHUB_STEP_SUMMARY
-          fi
-          
-          echo "" >> $GITHUB_STEP_SUMMARY
-          
-          # 如果有失败，提供重试指引
-          if [ "${{ needs.write.result }}" == "failure" ]; then
-            echo "## 🔄 重试指引" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "写入失败的数据已保存到Artifacts，可以通过以下方式重试：" >> $GITHUB_STEP_SUMMARY
-            echo "" >> $GITHUB_STEP_SUMMARY
-            echo "1. 点击本workflow右上角的 **Re-run failed jobs**" >> $GITHUB_STEP_SUMMARY
-            echo "2. 或手动触发workflow，勾选 **skip_crawl = true**" >> $GITHUB_STEP_SUMMARY
-            echo "3. 或下载Artifacts到本地后运行：" >> $GITHUB_STEP_SUMMARY
-            echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
-            echo "   cd scrawler_V2" >> $GITHUB_STEP_SUMMARY
-            echo "   python src/retry_writer.py --cache-dir ./cache" >> $GITHUB_STEP_SUMMARY
-            echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
-          fi
