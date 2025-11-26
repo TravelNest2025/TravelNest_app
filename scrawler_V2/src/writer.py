@@ -1,26 +1,18 @@
+#!/usr/bin/env python3
 """
-简化的重试写入脚本 - 独立版本，不依赖其他文件
+独立的Retry Writer - 不依赖其他模块
 
-使用场景：
-1. 爬取成功但写入失败 → 从缓存重试
-2. GitHub Actions中写入失败 → 下载Artifacts后重试
-
-命令示例：
-python src/retry_writer.py --cache-file ./cache/paris.json
+从缓存文件批量写入POI数据到Supabase
 """
 
-import argparse
-import json
-import logging
-import sys
 import os
+import sys
+import json
 import time
-from pathlib import Path
-from typing import Dict
+import argparse
+import logging
+from typing import Dict, List
 
-from supabase import create_client
-
-# 配置日志
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -29,147 +21,188 @@ logger = logging.getLogger(__name__)
 
 
 class RetryWriter:
-    """重试写入器"""
+    """带重试机制的POI数据写入器"""
     
-    def __init__(self, supabase_url, supabase_key):
-        self.supabase = create_client(supabase_url, supabase_key)
+    def __init__(self, supabase_url: str, supabase_key: str):
+        try:
+            from supabase import create_client
+            self.supabase = create_client(supabase_url, supabase_key)
+            logger.info("✅ Supabase客户端初始化成功")
+        except Exception as e:
+            logger.error(f"❌ Supabase初始化失败: {e}")
+            raise
+        
         self.stats = {
             'total': 0,
             'success': 0,
             'failed': 0,
-            'skipped': 0
+            'skipped': 0,
         }
+        self.failed_items = []
     
-    def write_single_poi(self, poi_data: Dict, poi_type: str, max_retries=3) -> bool:
-        """
-        写入单个POI，带重试机制
+    def check_exists(self, table: str, google_place_id: str) -> bool:
+        """检查POI是否已存在"""
+        try:
+            result = self.supabase.table(table).select('id').eq(
+                'google_place_id', google_place_id
+            ).limit(1).execute()
+            return len(result.data) > 0
+        except:
+            return False
+    
+    def write_single_poi(self, poi_data: Dict, poi_type: str, max_retries: int = 3) -> bool:
+        """写入单个POI（带重试）"""
+        table_map = {
+            'restaurant': 'restaurants',
+            'attraction': 'attractions',
+            'hotel': 'hotels',
+        }
         
-        Args:
-            poi_data: POI数据字典
-            poi_type: 'restaurant' | 'attraction' | 'hotel'
-            max_retries: 最大重试次数
-            
-        Returns:
-            True if success, False if failed
-        """
-        table_name = f"{poi_type}s"  # restaurants, attractions, hotels
+        table = table_map.get(poi_type)
+        if not table:
+            logger.error(f"❌ 未知POI类型: {poi_type}")
+            return False
         
+        google_place_id = poi_data.get('google_place_id')
+        name = poi_data.get('name', 'Unknown')
+        
+        # 检查是否已存在
+        if self.check_exists(table, google_place_id):
+            logger.debug(f"⏭️  跳过已存在: {name}")
+            self.stats['skipped'] += 1
+            return True
+        
+        # 尝试写入（带重试）
         for attempt in range(max_retries):
             try:
-                # 检查是否已存在
-                existing = self.supabase.table(table_name).select('id').eq(
-                    'google_place_id', poi_data['google_place_id']
-                ).execute()
+                result = self.supabase.table(table).insert(poi_data).execute()
                 
-                if existing.data:
-                    logger.info(f"⏭️  已存在，跳过: {poi_data.get('name')}")
-                    self.stats['skipped'] += 1
+                if result.data:
+                    logger.debug(f"✅ 写入成功: {name}")
+                    self.stats['success'] += 1
                     return True
-                
-                # 写入新数据
-                self.supabase.table(table_name).insert(poi_data).execute()
-                logger.info(f"✅ 写入成功: {poi_data.get('name')}")
-                self.stats['success'] += 1
-                return True
-                
+            
             except Exception as e:
+                logger.warning(f"⚠️  写入失败 (尝试 {attempt + 1}/{max_retries}): {name}")
+                
                 if attempt < max_retries - 1:
-                    logger.warning(f"⚠️  写入失败，重试 {attempt+1}/{max_retries}: {e}")
-                    time.sleep(2 ** attempt)  # 指数退避: 1s, 2s, 4s
+                    sleep_time = 2 ** attempt  # 指数退避
+                    time.sleep(sleep_time)
                 else:
-                    logger.error(f"❌ 写入最终失败: {poi_data.get('name')}, 错误: {e}")
+                    logger.error(f"❌ 最终失败: {name} - {e}")
                     self.stats['failed'] += 1
+                    self.failed_items.append({
+                        'type': poi_type,
+                        'name': name,
+                        'google_place_id': google_place_id,
+                        'error': str(e)
+                    })
                     return False
         
         return False
     
-    def retry_from_cache_file(self, json_file: Path) -> Dict:
-        """从爬取缓存文件重试写入"""
-        logger.info(f"📂 读取缓存文件: {json_file}")
+    def write_from_cache(self, cache_file: str) -> Dict:
+        """从缓存文件读取并批量写入"""
+        logger.info(f"📂 读取缓存文件: {cache_file}")
         
-        if not json_file.exists():
-            logger.error(f"❌ 文件不存在: {json_file}")
-            return self.stats
+        try:
+            with open(cache_file, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            logger.error(f"❌ 读取文件失败: {e}")
+            raise
         
-        with open(json_file) as f:
-            data = json.load(f)
+        restaurants = data.get('restaurants', [])
+        attractions = data.get('attractions', [])
+        hotels = data.get('hotels', [])
         
-        city_id = data.get('city_id', 'unknown')
-        logger.info(f"🏙️  城市: {city_id}")
-        logger.info(f"📊 数据统计: 餐厅{len(data.get('restaurants', []))}, "
-                   f"景点{len(data.get('attractions', []))}, "
-                   f"酒店{len(data.get('hotels', []))}")
+        total = len(restaurants) + len(attractions) + len(hotels)
+        self.stats['total'] = total
+        
+        logger.info(f"\n📊 总计: {total} 个POI")
+        logger.info(f"   餐厅: {len(restaurants)}")
+        logger.info(f"   景点: {len(attractions)}")
+        logger.info(f"   酒店: {len(hotels)}")
         
         # 写入餐厅
-        for restaurant_data in data.get('restaurants', []):
-            self.stats['total'] += 1
-            self.write_single_poi(restaurant_data, 'restaurant')
+        if restaurants:
+            logger.info(f"\n💾 写入餐厅 ({len(restaurants)}个)...")
+            for i, poi in enumerate(restaurants, 1):
+                logger.info(f"[{i}/{len(restaurants)}] {poi.get('name')}")
+                self.write_single_poi(poi, 'restaurant')
         
         # 写入景点
-        for attraction_data in data.get('attractions', []):
-            self.stats['total'] += 1
-            self.write_single_poi(attraction_data, 'attraction')
+        if attractions:
+            logger.info(f"\n🎭 写入景点 ({len(attractions)}个)...")
+            for i, poi in enumerate(attractions, 1):
+                logger.info(f"[{i}/{len(attractions)}] {poi.get('name')}")
+                self.write_single_poi(poi, 'attraction')
         
         # 写入酒店
-        for hotel_data in data.get('hotels', []):
-            self.stats['total'] += 1
-            self.write_single_poi(hotel_data, 'hotel')
+        if hotels:
+            logger.info(f"\n🏨 写入酒店 ({len(hotels)}个)...")
+            for i, poi in enumerate(hotels, 1):
+                logger.info(f"[{i}/{len(hotels)}] {poi.get('name')}")
+                self.write_single_poi(poi, 'hotel')
+        
+        # 保存失败记录
+        if self.failed_items:
+            failed_file = 'cache/failed_writes.json'
+            os.makedirs('cache', exist_ok=True)
+            with open(failed_file, 'w', encoding='utf-8') as f:
+                json.dump(self.failed_items, f, indent=2, ensure_ascii=False)
+            logger.warning(f"⚠️  失败记录: {failed_file}")
         
         return self.stats
     
     def print_summary(self):
-        """打印写入统计摘要"""
-        logger.info(f"\n{'='*60}")
-        logger.info("📊 写入统计摘要")
-        logger.info(f"{'='*60}")
-        logger.info(f"总数: {self.stats['total']}")
-        logger.info(f"✅ 成功: {self.stats['success']}")
-        logger.info(f"⏭️  跳过（已存在）: {self.stats['skipped']}")
-        logger.info(f"❌ 失败: {self.stats['failed']}")
+        """打印总结"""
+        print("\n" + "="*60)
+        print("  📊 写入总结")
+        print("="*60)
+        print(f"总计:     {self.stats['total']:>6}")
+        print(f"✅ 成功:  {self.stats['success']:>6}")
+        print(f"⏭️  跳过:  {self.stats['skipped']:>6} (已存在)")
+        print(f"❌ 失败:  {self.stats['failed']:>6}")
+        print("="*60)
         
-        if self.stats['total'] > 0:
-            success_rate = (self.stats['success'] + self.stats['skipped']) / self.stats['total'] * 100
-            logger.info(f"📈 成功率: {success_rate:.1f}%")
-        
-        logger.info(f"{'='*60}\n")
+        if self.stats['failed'] > 0:
+            print(f"\n⚠️  {self.stats['failed']} 个POI写入失败")
+            print("详情: cache/failed_writes.json")
+        elif self.stats['success'] > 0:
+            print("\n🎉 所有POI写入成功！")
 
 
 def main():
-    parser = argparse.ArgumentParser(description='重试写入POI数据到Supabase')
-    parser.add_argument('--cache-file', type=str, required=True, help='缓存文件路径')
+    parser = argparse.ArgumentParser(description='从缓存文件批量写入POI')
+    parser.add_argument('--cache-file', required=True, help='缓存JSON文件路径')
     args = parser.parse_args()
     
-    # 从环境变量获取Supabase配置
+    if not os.path.exists(args.cache_file):
+        logger.error(f"❌ 文件不存在: {args.cache_file}")
+        sys.exit(1)
+    
     supabase_url = os.getenv('SUPABASE_URL')
     supabase_key = os.getenv('SUPABASE_KEY')
     
     if not supabase_url or not supabase_key:
-        logger.error("❌ 缺少环境变量: SUPABASE_URL 或 SUPABASE_KEY")
+        logger.error("❌ 缺少环境变量: SUPABASE_URL, SUPABASE_KEY")
         sys.exit(1)
     
-    # 初始化写入器
     try:
         writer = RetryWriter(supabase_url, supabase_key)
-        logger.info("✅ Supabase客户端初始化成功")
-    except Exception as e:
-        logger.error(f"❌ Supabase客户端初始化失败: {e}")
-        sys.exit(1)
-    
-    # 执行重试
-    try:
-        writer.retry_from_cache_file(Path(args.cache_file))
+        writer.write_from_cache(args.cache_file)
         writer.print_summary()
         
-        # 根据结果设置退出码
         if writer.stats['failed'] > 0:
-            logger.warning("⚠️  存在写入失败的记录")
             sys.exit(1)
         else:
-            logger.info("🎉 所有数据写入成功！")
             sys.exit(0)
     
     except Exception as e:
-        logger.error(f"❌ 重试过程出错: {e}", exc_info=True)
+        logger.error(f"❌ 执行失败: {e}")
+        import traceback
+        logger.debug(traceback.format_exc())
         sys.exit(1)
 
 
