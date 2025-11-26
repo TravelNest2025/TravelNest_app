@@ -15,13 +15,9 @@ on:
 
 env:
   PYTHON_VERSION: '3.11'
+  WORKING_DIR: 'scrawler_V2'
 
 jobs:
-    # ⭐ 设置默认工作目录
-  defaults:
-    run:
-      working-directory: scrawler_V2
-  
   # ============================================
   # Job 1: 爬取数据（即使写入失败也会保存）
   # ============================================
@@ -29,12 +25,18 @@ jobs:
     name: 爬取 ${{ matrix.city }}
     runs-on: ubuntu-latest
     
+    # ✅ 正确位置：defaults在job内部
+    defaults:
+      run:
+        working-directory: scrawler_V2
+    
     # 只在不跳过爬取时运行
     if: github.event.inputs.skip_crawl != 'true'
     
     strategy:
       matrix:
-        city: ${{ fromJson(format('["{0}"]', github.event.inputs.cities || 'paris,london,tokyo')) }}
+        # ✅ 修正：正确解析逗号分隔的城市列表
+        city: ${{ fromJson(format('["{0}"]', replace(github.event.inputs.cities || 'paris,london,tokyo', ',', '","'))) }}
       fail-fast: false  # 一个城市失败不影响其他城市
       max-parallel: 3   # 最多并行3个城市
     
@@ -47,6 +49,7 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
+          cache-dependency-path: '${{ env.WORKING_DIR }}/requirements.txt'
       
       - name: 安装依赖
         run: |
@@ -89,7 +92,7 @@ print(f\"  酒店: {len(data.get('hotels', []))}\")
         if: always()  # 无论成功失败都上传
         with:
           name: poi-cache-${{ matrix.city }}
-          path: cache/${{ matrix.city }}.json
+          path: ${{ env.WORKING_DIR }}/cache/${{ matrix.city }}.json
           retention-days: 30  # 保留30天
           if-no-files-found: error
   
@@ -102,9 +105,15 @@ print(f\"  酒店: {len(data.get('hotels', []))}\")
     needs: crawl  # 依赖爬取Job
     if: always()  # 即使爬取部分失败也运行
     
+    # ✅ 正确位置：defaults在job内部
+    defaults:
+      run:
+        working-directory: scrawler_V2
+    
     strategy:
       matrix:
-        city: ${{ fromJson(format('["{0}"]', github.event.inputs.cities || 'paris,london,tokyo')) }}
+        # ✅ 修正：正确解析逗号分隔的城市列表
+        city: ${{ fromJson(format('["{0}"]', replace(github.event.inputs.cities || 'paris,london,tokyo', ',', '","'))) }}
       fail-fast: false
       max-parallel: 3
     
@@ -117,6 +126,7 @@ print(f\"  酒店: {len(data.get('hotels', []))}\")
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: 'pip'
+          cache-dependency-path: '${{ env.WORKING_DIR }}/requirements.txt'
       
       - name: 安装依赖
         run: |
@@ -130,7 +140,7 @@ print(f\"  酒店: {len(data.get('hotels', []))}\")
         uses: actions/download-artifact@v4
         with:
           name: poi-cache-${{ matrix.city }}
-          path: cache/
+          path: ${{ env.WORKING_DIR }}/cache/
       
       - name: 验证下载的文件
         run: |
@@ -175,7 +185,7 @@ print(f\"  酒店: {len(data.get('hotels', []))}\")
         uses: actions/upload-artifact@v4
         with:
           name: failed-writes-${{ matrix.city }}
-          path: cache/failed_writes.json
+          path: ${{ env.WORKING_DIR }}/cache/failed_writes.json
           retention-days: 30
           if-no-files-found: ignore
   
@@ -229,6 +239,7 @@ print(f\"  酒店: {len(data.get('hotels', []))}\")
             echo "2. 或手动触发workflow，勾选 **skip_crawl = true**" >> $GITHUB_STEP_SUMMARY
             echo "3. 或下载Artifacts到本地后运行：" >> $GITHUB_STEP_SUMMARY
             echo "   \`\`\`bash" >> $GITHUB_STEP_SUMMARY
+            echo "   cd scrawler_V2" >> $GITHUB_STEP_SUMMARY
             echo "   python src/retry_writer.py --cache-dir ./cache" >> $GITHUB_STEP_SUMMARY
             echo "   \`\`\`" >> $GITHUB_STEP_SUMMARY
           fi
