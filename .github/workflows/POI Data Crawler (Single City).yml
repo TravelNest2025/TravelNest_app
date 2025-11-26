@@ -93,6 +93,10 @@ jobs:
       run:
         working-directory: scrawler_V2
     
+    # 🔴 修改点 1: 强制运行逻辑
+    # 含义: 只要没有被取消，且 (Job1成功了 或者 我们主动跳过了Job1)，就运行 Job2
+    if: ${{ !cancelled() && (needs.crawl.result == 'success' || github.event.inputs.skip_crawl == 'true') }}
+    
     steps:
       - name: Checkout代码
         uses: actions/checkout@v4
@@ -112,11 +116,27 @@ jobs:
       - name: 创建缓存目录
         run: mkdir -p cache
       
-      - name: 下载爬取结果
+      # 🔴 修改点 2: 智能下载 Artifact
+      
+      # 情况 A: 爬虫跑了 (当前 Run 有数据)
+      - name: 下载当前运行的爬取结果
+        if: needs.crawl.result == 'success'
         uses: actions/download-artifact@v4
         with:
           name: poi-cache-${{ github.event.inputs.city || 'paris' }}
           path: ${{ env.WORKING_DIR }}/cache/
+
+      # 情况 B: 爬虫跳过了 (去下载最近一次成功的 Run 的数据)
+      - name: 下载上一次成功的爬取结果
+        if: github.event.inputs.skip_crawl == 'true'
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          # 你的 Workflow 文件名 (去 .github/workflows/ 里看文件名，比如 main.yml 或 crawler.yml)
+          workflow: main.yml  # ⚠️ 请修改为你实际的 YAML 文件名！
+          name: poi-cache-${{ github.event.inputs.city || 'paris' }}
+          path: ${{ env.WORKING_DIR }}/cache/
+          search_artifacts: true # 搜索所有 Artifacts
+          if_no_artifact_found: fail
       
       - name: 写入数据库
         env:
@@ -125,7 +145,7 @@ jobs:
           CITY: ${{ github.event.inputs.city || 'paris' }}
         run: |
           echo "💾 开始写入: $CITY"
-          python src/writer.py --cache-file cache/${CITY}.json
+          python src/rwriter.py --cache-file cache/${CITY}.json
           
           if [ $? -eq 0 ]; then
             echo "✅ 写入成功: $CITY"
