@@ -50,7 +50,7 @@ class RetryWriter:
         except:
             return False
             
-    def clean_data_for_db(self, poi_data: Dict) -> Dict:
+    def clean_data_for_db(self, poi_data: Dict, poi_type:str) -> Dict:
         """
         清洗数据：移除数据库中不存在的字段，并进行字段映射
         """
@@ -79,9 +79,20 @@ class RetryWriter:
         for key in keys_to_remove:
             if key in data:
                 data.pop(key)
-                
+
         # -------------------------------------------------
-        # 3. 构建 GIS Location
+        # 3. 针对特定类型的移除 (Type-Specific Cleaning)
+        # -------------------------------------------------
+        # 酒店表没有 price_level
+        if poi_type == 'hotel':
+            data.pop('price_level', None)
+            
+        # 景点表没有 price_level
+        if poi_type == 'attraction':
+            data.pop('price_level', None)
+
+        # -------------------------------------------------
+        # 4. 构建 GIS Location
         # -------------------------------------------------
         if 'location' not in data and 'latitude' in poi_data and 'longitude' in poi_data:
              lat = poi_data['latitude']
@@ -114,7 +125,7 @@ class RetryWriter:
             return True
             
         # 2. 数据清洗 (关键步骤！)
-        db_data = self.clean_data_for_db(poi_data)
+        db_data = self.clean_data_for_db(poi_data, poi_type)
         
         # 3. 尝试写入（带重试）
         for attempt in range(max_retries):
