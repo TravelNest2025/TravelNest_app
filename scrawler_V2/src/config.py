@@ -21,15 +21,18 @@ class GooglePlacesConfig:
     language: str = 'zh-CN'
     region: str = 'fr'  # 法国
     
-    # API限制
-    max_results_per_query: int = 60  # Google Places API单次最多返回60个结果
+    # API限制 (Google Places API New 单次请求最多返回 20 个)
+    max_results_per_page: int = 20 
     radius: int = 25000  # 搜索半径（米）
     
     @classmethod
     def from_env(cls) -> 'GooglePlacesConfig':
-        api_key = os.getenv('GOOGLE_PLACES_API_KEY')
+        # 优先读取 GOOGLE_MAPS_API_KEY (与 GitHub Actions 保持一致)
+        # 如果没有，尝试读取 GOOGLE_PLACES_API_KEY
+        api_key = os.getenv('GOOGLE_MAPS_API_KEY') or os.getenv('GOOGLE_PLACES_API_KEY')
+        
         if not api_key:
-            raise ValueError('GOOGLE_PLACES_API_KEY环境变量未设置')
+            raise ValueError('GOOGLE_MAPS_API_KEY 环境变量未设置')
         
         return cls(
             api_key=api_key,
@@ -130,7 +133,7 @@ class CrawlerConfig:
     crawl_hotels: bool = True
     
     # 限制
-    max_pois_per_type: Optional[int] = None  # None表示不限制
+    max_pois_per_type: int = 300  # 默认值直接设为 300
     
     # 缓存
     cache_dir: str = './cache'
@@ -145,12 +148,23 @@ class CrawlerConfig:
     
     @classmethod
     def from_env(cls) -> 'CrawlerConfig':
+        # 逻辑修复：
+        # 1. 尝试从环境变量读取 MAX_POIS_PER_TYPE
+        # 2. 如果环境变量没设置，或者为空字符串，则使用默认值 300
+        # 3. 这样就避免了之前 None 导致的逻辑混乱，也覆盖了可能存在的旧值 60
+        
+        env_max_pois = os.getenv('MAX_POIS_PER_TYPE')
+        if env_max_pois and env_max_pois.strip():
+            max_pois = int(env_max_pois)
+        else:
+            max_pois = 300 # 默认值
+
         return cls(
             target_cities=os.getenv('TARGET_CITIES', 'paris').split(','),
             crawl_restaurants=os.getenv('CRAWL_RESTAURANTS', 'true').lower() == 'true',
             crawl_attractions=os.getenv('CRAWL_ATTRACTIONS', 'true').lower() == 'true',
             crawl_hotels=os.getenv('CRAWL_HOTELS', 'true').lower() == 'true',
-            max_pois_per_type=int(os.getenv('MAX_POIS_PER_TYPE')) if os.getenv('MAX_POIS_PER_TYPE') else None,
+            max_pois_per_type=max_pois,
             cache_dir=os.getenv('CACHE_DIR', './cache'),
         )
 
@@ -225,7 +239,7 @@ def validate_env() -> dict[str, bool]:
     
     # 必需的环境变量
     required_vars = [
-        'GOOGLE_MAPS_API_KEY',
+        'GOOGLE_MAPS_API_KEY', # 统一使用这个名称
         'SUPABASE_URL',
         'SUPABASE_KEY',
     ]
@@ -238,6 +252,7 @@ def validate_env() -> dict[str, bool]:
         'TARGET_CITIES',
         'CACHE_DIR',
         'BATCH_SIZE',
+        'MAX_POIS_PER_TYPE', # 这是一个可选值
     ]
     
     for var in optional_vars:
@@ -285,3 +300,7 @@ if __name__ == '__main__':
     print(f"坐标: ({paris.latitude}, {paris.longitude})")
     print(f"搜索半径: {paris.search_radius}m")
     print(f"分类: {', '.join(paris.categories)}")
+    
+    print("\n=== 爬虫配置测试 ===")
+    crawler_cfg = get_crawler_config()
+    print(f"每类最大POI数量: {crawler_cfg.max_pois_per_type}")

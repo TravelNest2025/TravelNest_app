@@ -200,7 +200,7 @@ class GooglePlacesCrawler:
         longitude: float,
         included_types: List[str],
         radius: int = 25000,
-        max_results: int = 60,
+        max_results: int = 300,
     ) -> List[Dict]:
         """
         向后兼容的search_nearby方法，内部调用分页版本
@@ -481,7 +481,7 @@ class GooglePlacesCrawler:
             longitude=city_config.longitude,
             included_types=included_types,
             radius=city_config.search_radius,
-            max_results=self.crawler_config.max_pois_per_type or 60,
+            max_results=self.crawler_config.max_pois_per_type or 300,
         )
         
         logger.info(f"🔄 开始解析 {len(places)} 个原始结果...")
