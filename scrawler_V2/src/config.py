@@ -225,7 +225,7 @@ def validate_env() -> dict[str, bool]:
     
     # 必需的环境变量
     required_vars = [
-        'GOOGLE_PLACES_API_KEY',
+        'GOOGLE_MAPS_API_KEY',
         'SUPABASE_URL',
         'SUPABASE_KEY',
     ]
