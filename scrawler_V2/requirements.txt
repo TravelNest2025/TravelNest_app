@@ -2,7 +2,7 @@
 googlemaps==4.10.0
 
 # Supabase 数据库客户端
-supabase==2.3.4
+supabase==2.24.0
 
 # 如果你使用 PostgreSQL 直接连接（可选）
 psycopg2-binary==2.9.9
