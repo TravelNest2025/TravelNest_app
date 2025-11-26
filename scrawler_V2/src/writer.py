@@ -49,6 +49,37 @@ class RetryWriter:
             return len(result.data) > 0
         except:
             return False
+            
+    def clean_data_for_db(self, poi_data: Dict) -> Dict:
+        """
+        清洗数据：移除数据库中不存在的字段
+        """
+        # 复制一份数据，避免修改原字典
+        data = poi_data.copy()
+        
+        # 🚫 移除列表：这些字段在JSON里有，但数据库表里可能没有
+        # 如果你的数据库用的是 location (GIS)，那么 latitude/longitude 就是多余的
+        keys_to_remove = [
+            'latitude', 
+            'longitude', 
+            'created_at',   # 让数据库自动生成
+            'last_updated', # 让数据库自动生成
+            'photos'        # 原始API返回的字段，我们存的是 photo_references
+        ]
+        
+        for key in keys_to_remove:
+            if key in data:
+                data.pop(key)
+                
+        # ✅ 确保 location 字段存在
+        # 如果 JSON 里没有 location 但有 lat/lng，这里可以补救（可选）
+        if 'location' not in data and 'latitude' in poi_data and 'longitude' in poi_data:
+             lat = poi_data['latitude']
+             lng = poi_data['longitude']
+             if lat and lng:
+                 data['location'] = f"POINT({lng} {lat})"
+        
+        return data
     
     def write_single_poi(self, poi_data: Dict, poi_type: str, max_retries: int = 3) -> bool:
         """写入单个POI（带重试）"""
@@ -66,16 +97,19 @@ class RetryWriter:
         google_place_id = poi_data.get('google_place_id')
         name = poi_data.get('name', 'Unknown')
         
-        # 检查是否已存在
+        # 1. 检查是否已存在
         if self.check_exists(table, google_place_id):
             logger.debug(f"⏭️  跳过已存在: {name}")
             self.stats['skipped'] += 1
             return True
+            
+        # 2. 数据清洗 (关键步骤！)
+        db_data = self.clean_data_for_db(poi_data)
         
-        # 尝试写入（带重试）
+        # 3. 尝试写入（带重试）
         for attempt in range(max_retries):
             try:
-                result = self.supabase.table(table).insert(poi_data).execute()
+                result = self.supabase.table(table).insert(db_data).execute()
                 
                 if result.data:
                     logger.debug(f"✅ 写入成功: {name}")
@@ -83,11 +117,20 @@ class RetryWriter:
                     return True
             
             except Exception as e:
+                # 捕获特定错误，如果是字段缺失，重试也没用，直接报错
+                error_msg = str(e)
+                if "Could not find the" in error_msg and "column" in error_msg:
+                    logger.error(f"❌ 数据库字段不匹配 (请检查表结构): {name} - {e}")
+                    self.stats['failed'] += 1
+                    self.failed_items.append({
+                        'type': poi_type, 'name': name, 'error': str(e)
+                    })
+                    return False
+
                 logger.warning(f"⚠️  写入失败 (尝试 {attempt + 1}/{max_retries}): {name}")
                 
                 if attempt < max_retries - 1:
-                    sleep_time = 2 ** attempt  # 指数退避
-                    time.sleep(sleep_time)
+                    time.sleep(2 ** attempt)
                 else:
                     logger.error(f"❌ 最终失败: {name} - {e}")
                     self.stats['failed'] += 1
@@ -120,29 +163,23 @@ class RetryWriter:
         self.stats['total'] = total
         
         logger.info(f"\n📊 总计: {total} 个POI")
-        logger.info(f"   餐厅: {len(restaurants)}")
-        logger.info(f"   景点: {len(attractions)}")
-        logger.info(f"   酒店: {len(hotels)}")
         
         # 写入餐厅
         if restaurants:
             logger.info(f"\n💾 写入餐厅 ({len(restaurants)}个)...")
             for i, poi in enumerate(restaurants, 1):
-                logger.info(f"[{i}/{len(restaurants)}] {poi.get('name')}")
                 self.write_single_poi(poi, 'restaurant')
         
         # 写入景点
         if attractions:
             logger.info(f"\n🎭 写入景点 ({len(attractions)}个)...")
             for i, poi in enumerate(attractions, 1):
-                logger.info(f"[{i}/{len(attractions)}] {poi.get('name')}")
                 self.write_single_poi(poi, 'attraction')
         
         # 写入酒店
         if hotels:
             logger.info(f"\n🏨 写入酒店 ({len(hotels)}个)...")
             for i, poi in enumerate(hotels, 1):
-                logger.info(f"[{i}/{len(hotels)}] {poi.get('name')}")
                 self.write_single_poi(poi, 'hotel')
         
         # 保存失败记录
@@ -201,8 +238,6 @@ def main():
     
     except Exception as e:
         logger.error(f"❌ 执行失败: {e}")
-        import traceback
-        logger.debug(traceback.format_exc())
         sys.exit(1)
 
 
