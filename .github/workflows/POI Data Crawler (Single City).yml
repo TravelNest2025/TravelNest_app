@@ -145,7 +145,7 @@ jobs:
           CITY: ${{ github.event.inputs.city || 'paris' }}
         run: |
           echo "💾 开始写入: $CITY"
-          python src/rwriter.py --cache-file cache/${CITY}.json
+          python src/writer.py --cache-file cache/${CITY}.json
           
           if [ $? -eq 0 ]; then
             echo "✅ 写入成功: $CITY"
