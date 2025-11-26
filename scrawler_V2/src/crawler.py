@@ -49,7 +49,7 @@ class GooglePlacesCrawler:
         longitude: float,
         included_types: List[str],
         radius: int = 25000,
-        max_results: int = 60,
+        max_results: int = 300,
     ) -> List[Dict]:
         """
         使用Nearby Search搜索附近的POI，支持分页获取更多结果
@@ -535,7 +535,12 @@ if __name__ == '__main__':
     # 初始化Supabase客户端（用于读取映射表）
     supabase_client = None
     try:
+
         supabase_config = get_supabase_config()
+
+        print("DEBUG: 正在尝试连接 Supabase...")
+        print(f"DEBUG: URL={supabase_config.url}, KEY长度={len(str(supabase_config.key))}")
+
         supabase_client = create_client(supabase_config.url, supabase_config.key)
         logger.info("✅ Supabase客户端初始化成功（用于读取映射规则）")
     except Exception as e:
