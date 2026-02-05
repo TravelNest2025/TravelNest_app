@@ -63,14 +63,14 @@ python -m src.collector --city-id paris --poi-type restaurants --limit 100
 .
 ├── .github/
 │   └── workflows/
-│       └── collect_pois.yml      # GitHub Actions 配置
+│       └── POI_Data_cralwler(Single_City).yml      # GitHub Actions 配置
 ├── src/
 │   ├── __init__.py
 │   ├── config.py                 # 配置管理
-│   ├── database.py               # 数据库操作
-│   ├── google_places_client.py   # Google API 客户端
-│   ├── poi_mapper.py             # 分类映射
-│   └── collector.py              # 主采集逻辑
+│   ├── crawler.py                # 主采集逻辑
+│   ├── models.py                 # Google API 客户端
+│   ├── type_mapping.py           # 分类映射
+│   └── writer.py                 #数据库写入 
 ├── logs/                         # 日志目录
 ├── requirements.txt              # Python 依赖
 └── README.md
@@ -146,4 +146,5 @@ python -m src.collector --city-id paris --poi-type restaurants --limit 100
    值: your-secure-password
    
    名称: GOOGLE_PLACES_API_KEY
+
    值: AIzaSy...your-google-api-key
