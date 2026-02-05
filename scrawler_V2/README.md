@@ -68,7 +68,7 @@ python -m src.collector --city-id paris --poi-type restaurants --limit 100
 │   ├── __init__.py
 │   ├── config.py                 # 配置管理
 │   ├── crawler.py                # 主采集逻辑
-│   ├── models.py                 # Google API 客户端
+│   ├── models.py                 # 数据模型定义
 │   ├── type_mapping.py           # 分类映射
 │   └── writer.py                 #数据库写入 
 ├── logs/                         # 日志目录
@@ -148,3 +148,4 @@ python -m src.collector --city-id paris --poi-type restaurants --limit 100
    名称: GOOGLE_PLACES_API_KEY
 
    值: AIzaSy...your-google-api-key
+
